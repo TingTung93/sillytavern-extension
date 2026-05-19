@@ -1,13 +1,12 @@
 {
-    "display_name": "Local TTS Server",
+    "display_name": "Local TTS Server Provider",
     "loading_order": 99,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "TTS Server",
-    "version": "0.1.0",
-    "homePage": "https://github.com/your-org/tts-server-sillytavern-extension",
+    "version": "0.2.0",
     "hooks": {
         "activate": "init"
     }
