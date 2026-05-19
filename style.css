@@ -1,24 +1,30 @@
-.tts-server-extension-grid {
+.tts-server-provider-settings {
     display: grid;
-    grid-template-columns: max-content 1fr;
+    gap: 0.5rem;
+}
+
+.tts-server-provider-grid {
+    display: grid;
+    grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
     gap: 0.5rem 0.75rem;
-    margin: 0.75rem 0;
     align-items: center;
 }
 
-.tts-server-extension-grid code {
+.tts-server-provider-status {
+    opacity: 0.9;
     overflow-wrap: anywhere;
-    user-select: all;
 }
 
-.tts-server-extension-status {
-    opacity: 0.85;
-}
-
-.tts-server-extension-status.success {
+.tts-server-provider-status.success {
     color: var(--SmartThemeQuoteColor);
 }
 
-.tts-server-extension-status.error {
+.tts-server-provider-status.error {
     color: var(--warning);
+}
+
+@media (max-width: 600px) {
+    .tts-server-provider-grid {
+        grid-template-columns: 1fr;
+    }
 }
