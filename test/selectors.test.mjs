@@ -80,3 +80,31 @@ test('builds speech request with optional generation controls', () => {
         seed: 42,
     });
 });
+
+test('omits seed when seed is negative', () => {
+    const request = buildSpeechRequest(
+        {
+            model: 'chatterbox-turbo',
+            response_format: 'wav',
+            speed: 1,
+            exaggeration: '',
+            temperature: '',
+            seed: '-1',
+            paralinguistic_tags: false,
+            semantic_tags: true,
+        },
+        'Hello.',
+        'alice',
+    );
+
+    assert.deepEqual(request, {
+        model: 'chatterbox-turbo',
+        input: 'Hello.',
+        voice: 'alice',
+        response_format: 'wav',
+        speed: 1,
+        stream: false,
+        paralinguistic_tags: false,
+        semantic_tags: true,
+    });
+});
