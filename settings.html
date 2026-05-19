@@ -1,0 +1,28 @@
+<div id="tts-server-extension-settings" class="tts-server-extension">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Local TTS Server</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label for="tts_server_extension_endpoint">Server base URL</label>
+            <div class="flex-container alignItemsCenter">
+                <input id="tts_server_extension_endpoint" class="text_pole flex1" type="text" value="http://127.0.0.1:7851" maxlength="500">
+                <button id="tts_server_extension_check" class="menu_button" type="button">Check</button>
+            </div>
+
+            <div class="tts-server-extension-grid">
+                <span>Provider Endpoint</span>
+                <code id="tts_server_extension_provider_endpoint">http://127.0.0.1:7851/v1/audio/speech</code>
+                <span>Model</span>
+                <code>chatterbox-turbo</code>
+                <span>Voice selectors</span>
+                <code id="tts_server_extension_voices">alice,alice+calm</code>
+            </div>
+
+            <div id="tts_server_extension_status" class="tts-server-extension-status">
+                Not checked
+            </div>
+        </div>
+    </div>
+</div>
