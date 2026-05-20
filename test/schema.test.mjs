@@ -74,6 +74,16 @@ test('renderSettingsHtml emits an <option> for each engine and marks the active 
     assert.match(html, /<option value="placeholder"(?![^>]*selected)/);
 });
 
+test('renderSettingsHtml disables engine options that are not the server-active engine', () => {
+    // Server only runs one engine at a time; selecting any other guarantees a
+    // request validation 400. The dropdown should still show known engines for
+    // discoverability but make non-active ones unselectable.
+    const html = renderSettingsHtml(SAMPLE_GLOBAL, SAMPLE_CHATTERBOX);
+    assert.match(html, /<option value="fish-s2-pro"[^>]*disabled/);
+    assert.match(html, /<option value="placeholder"[^>]*disabled/);
+    assert.doesNotMatch(html, /<option value="chatterbox-turbo"[^>]*disabled/);
+});
+
 test('renderSettingsHtml emits an input for each engine-specific parameter', () => {
     const html = renderSettingsHtml(SAMPLE_GLOBAL, SAMPLE_CHATTERBOX);
     for (const param of SAMPLE_CHATTERBOX.parameters) {

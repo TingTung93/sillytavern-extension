@@ -50,8 +50,15 @@ function renderParameterControl(param) {
 
 export function renderSettingsHtml(globalCaps, engineCapability) {
     const engines = (globalCaps?.engines ?? []).map((engine) => {
-        const isActive = engine.is_active ? ' selected' : '';
-        return `<option value="${escapeAttr(engine.id)}"${isActive}>${escapeHtml(engine.label || engine.id)}</option>`;
+        // The server only runs one engine at a time, so non-active engines
+        // are shown for discoverability but cannot be selected — picking one
+        // would always 400 at the validate step in /v1/audio/speech.
+        const selected = engine.is_active ? ' selected' : '';
+        const disabled = engine.is_active ? '' : ' disabled';
+        const label = engine.is_active
+            ? engine.label || engine.id
+            : `${engine.label || engine.id} (not running)`;
+        return `<option value="${escapeAttr(engine.id)}"${selected}${disabled}>${escapeHtml(label)}</option>`;
     }).join('');
 
     const formats = (globalCaps?.response_formats ?? []).map((fmt) => {

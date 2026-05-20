@@ -60,8 +60,14 @@ export class LocalTtsServerProvider {
     async refreshCapabilitiesAndRender() {
         try {
             this.globalCaps = await this.api.capabilities();
-            if (!this.settings.model) {
-                this.settings.model = this.globalCaps.current_engine || DEFAULT_MODEL;
+            // ALWAYS sync to the server's active engine. Persisted settings
+            // from older sessions may still reference a different engine
+            // (e.g. the old chatterbox-turbo default) but the server rejects
+            // any model that doesn't match its currently-running engine.
+            const activeEngine = this.globalCaps.current_engine || DEFAULT_MODEL;
+            if (this.settings.model !== activeEngine) {
+                this.settings.model = activeEngine;
+                saveTtsProviderSettings();
             }
             this.engineCap = await this.api.engineCapability(this.settings.model);
         } catch (error) {
@@ -113,18 +119,14 @@ export class LocalTtsServerProvider {
             const event = $el.is('select') ? 'change' : 'input';
             $el.on(event, () => this.onSettingsChange());
         }
-        $('#local_tts_server_engine').on('change', async () => {
-            this.settings.model = String($('#local_tts_server_engine').val() || DEFAULT_MODEL);
-            saveTtsProviderSettings();
-            try {
-                this.engineCap = await this.api.engineCapability(this.settings.model);
-            } catch (error) {
-                this.setStatus(`Engine capability fetch failed: ${error.message}`, false);
-                return;
+        $('#local_tts_server_engine').on('change', () => {
+            // The active engine is server-fixed (one engine at a time). If the
+            // selection somehow drifts, snap back so request payloads always
+            // match what the server is running.
+            const selected = String($('#local_tts_server_engine').val() || '');
+            if (selected !== this.settings.model) {
+                $('#local_tts_server_engine').val(this.settings.model);
             }
-            $(`#${ROOT_ID}`).html(renderSettingsHtml(this.globalCaps, this.engineCap));
-            this.populateFields();
-            this.bindHandlers();
         });
         for (const param of this.allSchemaParams()) {
             const $el = $(`[data-param="${param.id}"]`);
