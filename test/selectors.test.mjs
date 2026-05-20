@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    buildSpeechRequest,
     buildVoiceOptions,
     normalizeEndpoint,
     parseFallbackVoices,
@@ -50,92 +49,4 @@ test('parses fallback voice csv', () => {
     ]);
 });
 
-test('builds speech request with optional generation controls', () => {
-    const request = buildSpeechRequest(
-        {
-            model: 'chatterbox-turbo',
-            response_format: 'mp3',
-            speed: 1.1,
-            exaggeration: '0.6',
-            temperature: '0.8',
-            seed: '42',
-            paralinguistic_tags: 'on',
-            semantic_tags: 'off',
-        },
-        'Hello.',
-        'alice+calm',
-    );
-
-    assert.deepEqual(request, {
-        model: 'chatterbox-turbo',
-        input: 'Hello.',
-        voice: 'alice+calm',
-        response_format: 'mp3',
-        speed: 1.1,
-        stream: false,
-        paralinguistic_tags: true,
-        semantic_tags: false,
-        exaggeration: 0.6,
-        temperature: 0.8,
-        seed: 42,
-    });
-});
-
-test('omits seed when seed is negative', () => {
-    const request = buildSpeechRequest(
-        {
-            model: 'chatterbox-turbo',
-            response_format: 'wav',
-            speed: 1,
-            exaggeration: '',
-            temperature: '',
-            seed: '-1',
-            paralinguistic_tags: 'off',
-            semantic_tags: 'on',
-        },
-        'Hello.',
-        'alice',
-    );
-
-    assert.deepEqual(request, {
-        model: 'chatterbox-turbo',
-        input: 'Hello.',
-        voice: 'alice',
-        response_format: 'wav',
-        speed: 1,
-        stream: false,
-        paralinguistic_tags: false,
-        semantic_tags: true,
-    });
-});
-
-test('omits paralinguistic_tags and semantic_tags when set to "default" (preserves server preset defaults)', () => {
-    const request = buildSpeechRequest(
-        {
-            model: 'chatterbox-turbo',
-            response_format: 'mp3',
-            speed: 1,
-            exaggeration: '',
-            temperature: '',
-            seed: -1,
-            paralinguistic_tags: 'default',
-            semantic_tags: 'default',
-        },
-        'Hello.',
-        'alice',
-    );
-
-    assert.equal('paralinguistic_tags' in request, false, 'default mode must omit paralinguistic_tags from payload');
-    assert.equal('semantic_tags' in request, false, 'default mode must omit semantic_tags from payload');
-});
-
-test('overrides take precedence over settings for tag fields', () => {
-    const request = buildSpeechRequest(
-        { model: 'm', response_format: 'mp3', speed: 1, exaggeration: '', temperature: '', seed: -1, paralinguistic_tags: 'default', semantic_tags: 'default' },
-        'Hi.',
-        'alice',
-        { paralinguistic_tags: true, semantic_tags: false },
-    );
-    assert.equal(request.paralinguistic_tags, true);
-    assert.equal(request.semantic_tags, false);
-});
+// buildSpeechRequest moved to schema.js — covered by test/schema.test.mjs.

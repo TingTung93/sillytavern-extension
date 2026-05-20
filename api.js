@@ -1,4 +1,4 @@
-import { buildSpeechRequest, normalizeEndpoint, speechEndpoint } from './selectors.js';
+import { normalizeEndpoint, speechEndpoint } from './selectors.js';
 import { DEFAULT_TIMEOUT_MS } from './settings.js';
 
 export class LocalTtsServerApi {
@@ -52,12 +52,27 @@ export class LocalTtsServerApi {
         return Array.isArray(presets) ? presets : [];
     }
 
-    async generate(input, voiceId, overrides = {}) {
+    async capabilities() {
+        return this.getJson('/api/capabilities');
+    }
+
+    async engineCapability(engineId) {
+        if (!engineId) return null;
+        const response = await this.fetchWithTimeout(
+            `${this.baseUrl()}/api/capabilities/${encodeURIComponent(engineId)}`,
+            { method: 'GET' },
+        );
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        return response.json();
+    }
+
+    async generate(requestBody) {
         const settings = this.getSettings();
         const response = await this.fetchWithTimeout(speechEndpoint(settings.provider_endpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buildSpeechRequest(settings, input, voiceId, overrides)),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {

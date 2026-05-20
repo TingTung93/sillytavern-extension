@@ -9,12 +9,17 @@ export const DEFAULT_SETTINGS = Object.freeze({
     speed: 1,
     selector_mode: 'plain-plus-presets',
     fallback_voices: '',
+    timeout_ms: DEFAULT_TIMEOUT_MS,
+    // schema-driven parameter slots (flat: param id → raw string value);
+    // the active engine's capability schema decides which are visible/sent.
     exaggeration: '',
     temperature: '',
+    top_p: '',
+    top_k: '',
+    repetition_penalty: '',
     seed: -1,
     paralinguistic_tags: 'default',
     semantic_tags: 'default',
-    timeout_ms: DEFAULT_TIMEOUT_MS,
 });
 
 const TAG_VALUES = new Set(['default', 'on', 'off']);

@@ -1,23 +1,28 @@
 import { getPreviewString, saveTtsProviderSettings } from '../../tts/index.js';
 import { LocalTtsServerApi } from './api.js';
-import { buildVoiceOptions, parseFallbackVoices, voiceIdOf } from './selectors.js';
-import { mergeSettings } from './settings.js';
-import { renderSettingsHtml } from './template.js';
-import { readFormValues } from './form.js';
+import {
+    DEFAULT_ENDPOINT,
+    DEFAULT_MODEL,
+    buildVoiceOptions,
+    parseFallbackVoices,
+    voiceIdOf,
+} from './selectors.js';
+import { mergeSettings, DEFAULT_TIMEOUT_MS } from './settings.js';
+import {
+    renderSettingsHtml,
+    readSchemaValues,
+    buildSpeechRequest,
+} from './schema.js';
 
-const FIELD_IDS = {
+const ROOT_ID = 'local_tts_server_root';
+
+const ENVELOPE_IDS = {
     provider_endpoint: 'local_tts_server_endpoint',
-    model: 'local_tts_server_model',
-    response_format: 'local_tts_server_format',
-    selector_mode: 'local_tts_server_selector_mode',
-    fallback_voices: 'local_tts_server_fallback_voices',
-    speed: 'local_tts_server_speed',
-    exaggeration: 'local_tts_server_exaggeration',
-    temperature: 'local_tts_server_temperature',
-    seed: 'local_tts_server_seed',
-    timeout_ms: 'local_tts_server_timeout_ms',
-    paralinguistic_tags: 'local_tts_server_paralinguistic_tags',
-    semantic_tags: 'local_tts_server_semantic_tags',
+    model:             'local_tts_server_engine',
+    response_format:   'local_tts_server_format',
+    selector_mode:     'local_tts_server_selector_mode',
+    fallback_voices:   'local_tts_server_fallback_voices',
+    timeout_ms:        'local_tts_server_timeout_ms',
 };
 
 export class LocalTtsServerProvider {
@@ -27,6 +32,8 @@ export class LocalTtsServerProvider {
     separator = ' . ';
     audioElement = document.createElement('audio');
     previewBlobUrl = null;
+    globalCaps = null;
+    engineCap = null;
 
     constructor() {
         this.settings = mergeSettings();
@@ -34,31 +41,114 @@ export class LocalTtsServerProvider {
     }
 
     get settingsHtml() {
-        return renderSettingsHtml();
+        // SillyTavern reads this once and inserts it. The actual schema-driven
+        // panel is rendered into this container by loadSettings() after the
+        // capability fetch resolves.
+        return `<div id="${ROOT_ID}" class="tts-server-provider-settings"></div>`;
     }
 
     async loadSettings(settings) {
         this.settings = mergeSettings(settings);
         this.api = new LocalTtsServerApi(() => this.settings);
 
-        for (const [field, id] of Object.entries(FIELD_IDS)) {
-            const $el = $(`#${id}`);
-            if (!$el.length) continue;
-            $el.val(this.settings[field]);
-            const event = ($el.is('select') || $el.is('input[type="checkbox"]')) ? 'change' : 'input';
-            $el.on(event, () => this.onSettingsChange());
-        }
-        $('#local_tts_server_speed_output').text(this.settings.speed);
-        $('#local_tts_server_snapshot_fallback').on('click', () => this.snapshotDiscoveredFallback());
+        const root = $(`#${ROOT_ID}`);
+        root.html('<div class="tts-server-provider-status">Loading capabilities…</div>');
 
+        await this.refreshCapabilitiesAndRender();
+    }
+
+    async refreshCapabilitiesAndRender() {
+        try {
+            this.globalCaps = await this.api.capabilities();
+            if (!this.settings.model) {
+                this.settings.model = this.globalCaps.current_engine || DEFAULT_MODEL;
+            }
+            this.engineCap = await this.api.engineCapability(this.settings.model);
+        } catch (error) {
+            this.renderFallbackShell();
+            this.setStatus(`Capability fetch failed: ${error.message}`, false);
+            return;
+        }
+
+        $(`#${ROOT_ID}`).html(renderSettingsHtml(this.globalCaps, this.engineCap));
+        this.populateFields();
+        this.bindHandlers();
         await this.checkReady();
     }
 
+    renderFallbackShell() {
+        $(`#${ROOT_ID}`).html(
+            `<label for="${ENVELOPE_IDS.provider_endpoint}">Server base URL</label>` +
+            `<input id="${ENVELOPE_IDS.provider_endpoint}" type="text" class="text_pole" maxlength="500">` +
+            `<div id="local_tts_server_status" class="tts-server-provider-status">Capabilities unavailable</div>`,
+        );
+        $(`#${ENVELOPE_IDS.provider_endpoint}`).val(this.settings.provider_endpoint || DEFAULT_ENDPOINT)
+            .on('input', () => {
+                this.settings.provider_endpoint = String($(`#${ENVELOPE_IDS.provider_endpoint}`).val() || '').trim();
+                saveTtsProviderSettings();
+            });
+    }
+
+    populateFields() {
+        for (const [field, id] of Object.entries(ENVELOPE_IDS)) {
+            $(`#${id}`).val(this.settings[field] ?? '');
+        }
+        for (const param of this.allSchemaParams()) {
+            const value = this.settings[param.id];
+            const stringified = value === undefined || value === null ? '' : String(value);
+            $(`[data-param="${param.id}"]`).val(stringified === '' && param.type === 'tristate' ? 'default' : stringified);
+        }
+    }
+
+    allSchemaParams() {
+        return [
+            ...(this.engineCap?.parameters ?? []),
+            ...(this.globalCaps?.request_fields ?? []),
+        ];
+    }
+
+    bindHandlers() {
+        for (const [field, id] of Object.entries(ENVELOPE_IDS)) {
+            const $el = $(`#${id}`);
+            const event = $el.is('select') ? 'change' : 'input';
+            $el.on(event, () => this.onSettingsChange());
+        }
+        $('#local_tts_server_engine').on('change', async () => {
+            this.settings.model = String($('#local_tts_server_engine').val() || DEFAULT_MODEL);
+            saveTtsProviderSettings();
+            try {
+                this.engineCap = await this.api.engineCapability(this.settings.model);
+            } catch (error) {
+                this.setStatus(`Engine capability fetch failed: ${error.message}`, false);
+                return;
+            }
+            $(`#${ROOT_ID}`).html(renderSettingsHtml(this.globalCaps, this.engineCap));
+            this.populateFields();
+            this.bindHandlers();
+        });
+        for (const param of this.allSchemaParams()) {
+            const $el = $(`[data-param="${param.id}"]`);
+            const event = $el.is('select') ? 'change' : 'input';
+            $el.on(event, () => this.onSettingsChange());
+        }
+        $('#local_tts_server_snapshot_fallback').on('click', () => this.snapshotDiscoveredFallback());
+    }
+
     onSettingsChange() {
-        const values = readFormValues((field) => $(`#${FIELD_IDS[field]}`).val());
-        Object.assign(this.settings, values);
-        $('#local_tts_server_speed_output').text(this.settings.speed);
+        for (const [field, id] of Object.entries(ENVELOPE_IDS)) {
+            const raw = $(`#${id}`).val();
+            this.settings[field] = field === 'timeout_ms' ? this.parseTimeout(raw) : String(raw ?? '').trim();
+        }
+        for (const param of this.allSchemaParams()) {
+            const raw = $(`[data-param="${param.id}"]`).val();
+            this.settings[param.id] = raw ?? '';
+        }
         saveTtsProviderSettings();
+    }
+
+    parseTimeout(raw) {
+        const n = Number(raw);
+        return Number.isFinite(n) && n >= 1000 ? n : DEFAULT_TIMEOUT_MS;
     }
 
     snapshotDiscoveredFallback() {
@@ -67,7 +157,7 @@ export class LocalTtsServerProvider {
             return;
         }
         const csv = this.voices.map(voiceIdOf).filter(Boolean).join(',');
-        $(`#${FIELD_IDS.fallback_voices}`).val(csv);
+        $(`#${ENVELOPE_IDS.fallback_voices}`).val(csv);
         this.settings.fallback_voices = csv;
         saveTtsProviderSettings();
         this.setStatus(`Saved ${this.voices.length} voices to the fallback list.`, true);
@@ -85,7 +175,7 @@ export class LocalTtsServerProvider {
         try {
             this.status = await this.api.status();
             this.voices = await this.fetchTtsVoiceObjects();
-            const engine = this.status.engine || this.status.model || 'unknown engine';
+            const engine = this.status.engine || 'unknown engine';
             const modelStatus = this.status.model_status || this.status.state || 'unknown state';
             this.setStatus(`${engine}: ${modelStatus}. ${this.voices.length} voices available.`, true);
         } catch (error) {
@@ -95,7 +185,7 @@ export class LocalTtsServerProvider {
     }
 
     async onRefreshClick() {
-        await this.checkReady();
+        await this.refreshCapabilitiesAndRender();
     }
 
     async fetchTtsVoiceObjects() {
@@ -121,11 +211,28 @@ export class LocalTtsServerProvider {
         return match;
     }
 
-    // voiceMapKey is part of SillyTavern's provider contract but not needed for
-    // this server — the composite "voice+preset" selector already encodes everything.
+    buildRequestBody(text, voiceId) {
+        const schemaValues = readSchemaValues(
+            (id) => $(`[data-param="${id}"]`).val(),
+            this.globalCaps,
+            this.engineCap,
+        );
+        return buildSpeechRequest({
+            engineId: this.settings.model || DEFAULT_MODEL,
+            response_format: this.settings.response_format || 'mp3',
+            input: text,
+            voice: voiceId,
+            values: schemaValues,
+            engineCapability: this.engineCap,
+            globalCapabilities: this.globalCaps,
+        });
+    }
+
+    // voiceMapKey is part of SillyTavern's provider contract but the composite
+    // "voice+preset" selector already encodes everything the server needs.
     async generateTts(text, voiceId, voiceMapKey) {
         void voiceMapKey;
-        return this.api.generate(text, voiceId);
+        return this.api.generate(this.buildRequestBody(text, voiceId));
     }
 
     revokePreviewUrl() {
@@ -140,7 +247,7 @@ export class LocalTtsServerProvider {
         this.audioElement.currentTime = 0;
         this.revokePreviewUrl();
 
-        const response = await this.api.generate(getPreviewString('en-US'), voiceId);
+        const response = await this.api.generate(this.buildRequestBody(getPreviewString('en-US'), voiceId));
         const blob = await response.blob();
         this.previewBlobUrl = URL.createObjectURL(blob);
         this.audioElement.src = this.previewBlobUrl;

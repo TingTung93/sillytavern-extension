@@ -48,8 +48,20 @@ test('POST /v1/audio/speech forwards an AbortSignal to fetch', async () => {
         return Promise.resolve(jsonResponse({}));
     };
     const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
-    await api.generate('hello', 'alice');
+    await api.generate({ model: 'm', input: 'hello', voice: 'alice', response_format: 'mp3', speed: 1, stream: false });
     assert.ok(captured.signal, 'generate forwards a signal too');
+});
+
+test('generate sends the request body verbatim (no client-side mutation)', async () => {
+    let capturedBody;
+    const fakeFetch = (url, init) => {
+        capturedBody = init.body;
+        return Promise.resolve(jsonResponse({}));
+    };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    const payload = { model: 'chatterbox-turbo', input: 'hi', voice: 'alice', response_format: 'mp3', speed: 1, stream: false, temperature: 0.7 };
+    await api.generate(payload);
+    assert.deepEqual(JSON.parse(capturedBody), payload);
 });
 
 test('request aborts when timeout elapses', async () => {
@@ -78,6 +90,51 @@ test('successful response within timeout does not throw', async () => {
     const api = new LocalTtsServerApi(makeSettings({ timeout_ms: 5000 }), fakeFetch);
     const status = await api.status();
     assert.equal(status.state, 'ready');
+});
+
+test('capabilities() GETs /api/capabilities and returns the body', async () => {
+    let lastUrl;
+    const fakeFetch = (url) => {
+        lastUrl = url;
+        return Promise.resolve(jsonResponse({ current_engine: 'chatterbox-turbo', engines: [], response_formats: [], request_fields: [] }));
+    };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    const caps = await api.capabilities();
+    assert.equal(lastUrl, 'http://127.0.0.1:7851/api/capabilities');
+    assert.equal(caps.current_engine, 'chatterbox-turbo');
+});
+
+test('engineCapability(id) GETs /api/capabilities/{id} and returns body', async () => {
+    let lastUrl;
+    const fakeFetch = (url) => {
+        lastUrl = url;
+        return Promise.resolve(jsonResponse({ id: 'chatterbox-turbo', label: 'Chatterbox Turbo', parameters: [] }));
+    };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    const cap = await api.engineCapability('chatterbox-turbo');
+    assert.equal(lastUrl, 'http://127.0.0.1:7851/api/capabilities/chatterbox-turbo');
+    assert.equal(cap.id, 'chatterbox-turbo');
+});
+
+test('engineCapability returns null for 404 instead of throwing', async () => {
+    const fakeFetch = () => Promise.resolve({
+        ok: false,
+        status: 404,
+        text: async () => 'not found',
+        json: async () => ({ detail: 'not found' }),
+    });
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    const cap = await api.engineCapability('nope');
+    assert.equal(cap, null);
+});
+
+test('engineCapability returns null when id is empty (no fetch)', async () => {
+    let fetchCalls = 0;
+    const fakeFetch = () => { fetchCalls += 1; return Promise.resolve(jsonResponse({})); };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    assert.equal(await api.engineCapability(''), null);
+    assert.equal(await api.engineCapability(null), null);
+    assert.equal(fetchCalls, 0);
 });
 
 test('does not invoke fetchImpl with the api instance as receiver (avoids browser "Illegal invocation")', async () => {

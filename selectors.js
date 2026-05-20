@@ -69,37 +69,3 @@ export function buildVoiceOptions(voices, presets, selectorMode = 'plain-plus-pr
     return options.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function tagOverride(value) {
-    if (value === 'on' || value === true) return true;
-    if (value === 'off' || value === false) return false;
-    return undefined;
-}
-
-export function buildSpeechRequest(settings, input, voiceId, overrides = {}) {
-    const seed = Number(settings.seed);
-    const request = {
-        model: settings.model || DEFAULT_MODEL,
-        input,
-        voice: voiceId,
-        response_format: settings.response_format || 'mp3',
-        speed: Number(settings.speed || 1),
-        stream: false,
-    };
-
-    const paralinguistic = tagOverride(settings.paralinguistic_tags);
-    if (paralinguistic !== undefined) request.paralinguistic_tags = paralinguistic;
-    const semantic = tagOverride(settings.semantic_tags);
-    if (semantic !== undefined) request.semantic_tags = semantic;
-
-    if (settings.exaggeration !== '' && settings.exaggeration !== null && settings.exaggeration !== undefined) {
-        request.exaggeration = Number(settings.exaggeration);
-    }
-    if (settings.temperature !== '' && settings.temperature !== null && settings.temperature !== undefined) {
-        request.temperature = Number(settings.temperature);
-    }
-    if (Number.isInteger(seed) && seed >= 0) {
-        request.seed = seed;
-    }
-
-    return { ...request, ...overrides };
-}
