@@ -79,3 +79,20 @@ test('successful response within timeout does not throw', async () => {
     const status = await api.status();
     assert.equal(status.state, 'ready');
 });
+
+test('does not invoke fetchImpl with the api instance as receiver (avoids browser "Illegal invocation")', async () => {
+    // Browsers throw TypeError when fetch is called with a non-window `this`.
+    // Simulate that: this fake throws if called with `this === api instance`.
+    let lastThis = null;
+    function strictFetch(url, init) {
+        lastThis = this;
+        if (this && this !== globalThis && (this.fetchImpl === strictFetch || 'getSettings' in this)) {
+            const err = new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+            return Promise.reject(err);
+        }
+        return Promise.resolve(jsonResponse({ state: 'ready' }));
+    }
+    const api = new LocalTtsServerApi(makeSettings(), strictFetch);
+    await api.status();
+    assert.ok(!(lastThis && 'getSettings' in (lastThis || {})), `fetchImpl must not be called with the api instance as 'this' (was: ${lastThis && lastThis.constructor && lastThis.constructor.name})`);
+});

@@ -2,9 +2,13 @@ import { buildSpeechRequest, normalizeEndpoint, speechEndpoint } from './selecto
 import { DEFAULT_TIMEOUT_MS } from './settings.js';
 
 export class LocalTtsServerApi {
-    constructor(getSettings, fetchImpl = fetch) {
+    constructor(getSettings, fetchImpl) {
         this.getSettings = getSettings;
-        this.fetchImpl = fetchImpl;
+        // Wrap in an arrow so `this.fetchImpl(...)` doesn't bind the api
+        // instance as the receiver — browser `fetch` requires `this === window`
+        // and throws "Illegal invocation" otherwise.
+        const impl = fetchImpl ?? ((...args) => fetch(...args));
+        this.fetchImpl = (...args) => impl(...args);
     }
 
     baseUrl() {
