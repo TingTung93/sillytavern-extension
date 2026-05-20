@@ -1,4 +1,5 @@
 import { buildSpeechRequest, normalizeEndpoint, speechEndpoint } from './selectors.js';
+import { DEFAULT_TIMEOUT_MS } from './settings.js';
 
 export class LocalTtsServerApi {
     constructor(getSettings, fetchImpl = fetch) {
@@ -10,8 +11,23 @@ export class LocalTtsServerApi {
         return normalizeEndpoint(this.getSettings().provider_endpoint);
     }
 
+    timeoutMs() {
+        const value = Number(this.getSettings().timeout_ms);
+        return Number.isFinite(value) && value >= 1000 ? value : DEFAULT_TIMEOUT_MS;
+    }
+
+    async fetchWithTimeout(url, init = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.timeoutMs());
+        try {
+            return await this.fetchImpl(url, { ...init, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     async getJson(path) {
-        const response = await this.fetchImpl(`${this.baseUrl()}${path}`, { method: 'GET' });
+        const response = await this.fetchWithTimeout(`${this.baseUrl()}${path}`, { method: 'GET' });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${await response.text()}`);
         }
@@ -34,7 +50,7 @@ export class LocalTtsServerApi {
 
     async generate(input, voiceId, overrides = {}) {
         const settings = this.getSettings();
-        const response = await this.fetchImpl(speechEndpoint(settings.provider_endpoint), {
+        const response = await this.fetchWithTimeout(speechEndpoint(settings.provider_endpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(buildSpeechRequest(settings, input, voiceId, overrides)),

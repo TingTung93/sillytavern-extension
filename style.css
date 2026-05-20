@@ -10,6 +10,17 @@
     align-items: center;
 }
 
+.tts-server-provider-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.tts-server-provider-row .flex1 {
+    flex: 1;
+    min-width: 0;
+}
+
 .tts-server-provider-status {
     opacity: 0.9;
     overflow-wrap: anywhere;
