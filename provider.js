@@ -7,7 +7,7 @@ import {
     parseFallbackVoices,
     voiceIdOf,
 } from './selectors.js';
-import { mergeSettings, DEFAULT_TIMEOUT_MS } from './settings.js';
+import { mergeSettings, DEFAULT_TIMEOUT_MS, DEFAULT_GENERATION_TIMEOUT_MS } from './settings.js';
 import {
     renderSettingsHtml,
     readSchemaValues,
@@ -17,12 +17,13 @@ import {
 const ROOT_ID = 'local_tts_server_root';
 
 const ENVELOPE_IDS = {
-    provider_endpoint: 'local_tts_server_endpoint',
-    model:             'local_tts_server_engine',
-    response_format:   'local_tts_server_format',
-    selector_mode:     'local_tts_server_selector_mode',
-    fallback_voices:   'local_tts_server_fallback_voices',
-    timeout_ms:        'local_tts_server_timeout_ms',
+    provider_endpoint:      'local_tts_server_endpoint',
+    model:                  'local_tts_server_engine',
+    response_format:        'local_tts_server_format',
+    selector_mode:          'local_tts_server_selector_mode',
+    fallback_voices:        'local_tts_server_fallback_voices',
+    timeout_ms:             'local_tts_server_timeout_ms',
+    generation_timeout_ms:  'local_tts_server_generation_timeout_ms',
 };
 
 export class LocalTtsServerProvider {
@@ -139,7 +140,13 @@ export class LocalTtsServerProvider {
     onSettingsChange() {
         for (const [field, id] of Object.entries(ENVELOPE_IDS)) {
             const raw = $(`#${id}`).val();
-            this.settings[field] = field === 'timeout_ms' ? this.parseTimeout(raw) : String(raw ?? '').trim();
+            if (field === 'timeout_ms') {
+                this.settings[field] = this.parseTimeout(raw, DEFAULT_TIMEOUT_MS);
+            } else if (field === 'generation_timeout_ms') {
+                this.settings[field] = this.parseTimeout(raw, DEFAULT_GENERATION_TIMEOUT_MS);
+            } else {
+                this.settings[field] = String(raw ?? '').trim();
+            }
         }
         for (const param of this.allSchemaParams()) {
             const raw = $(`[data-param="${param.id}"]`).val();
@@ -148,9 +155,9 @@ export class LocalTtsServerProvider {
         saveTtsProviderSettings();
     }
 
-    parseTimeout(raw) {
+    parseTimeout(raw, fallback) {
         const n = Number(raw);
-        return Number.isFinite(n) && n >= 1000 ? n : DEFAULT_TIMEOUT_MS;
+        return Number.isFinite(n) && n >= 1000 ? n : fallback;
     }
 
     snapshotDiscoveredFallback() {

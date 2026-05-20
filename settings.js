@@ -1,6 +1,10 @@
 import { DEFAULT_ENDPOINT, DEFAULT_MODEL } from './selectors.js';
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
+// /v1/audio/speech non-streaming responses are held open until full TTS
+// generation completes (server-side semaphore = 1 + per-paragraph Fish S2
+// inference can take minutes). Server's own fish_s2_timeout defaults to 600s.
+export const DEFAULT_GENERATION_TIMEOUT_MS = 600_000;
 
 export const DEFAULT_SETTINGS = Object.freeze({
     provider_endpoint: DEFAULT_ENDPOINT,
@@ -10,6 +14,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     selector_mode: 'plain-plus-presets',
     fallback_voices: '',
     timeout_ms: DEFAULT_TIMEOUT_MS,
+    generation_timeout_ms: DEFAULT_GENERATION_TIMEOUT_MS,
     // schema-driven parameter slots (flat: param id → raw string value);
     // the active engine's capability schema decides which are visible/sent.
     exaggeration: '',
@@ -42,6 +47,9 @@ export function mergeSettings(settings = {}) {
     merged.semantic_tags = migrateTagValue(merged.semantic_tags);
     if (!Number.isFinite(merged.timeout_ms) || merged.timeout_ms < 1000) {
         merged.timeout_ms = DEFAULT_TIMEOUT_MS;
+    }
+    if (!Number.isFinite(merged.generation_timeout_ms) || merged.generation_timeout_ms < 1000) {
+        merged.generation_timeout_ms = DEFAULT_GENERATION_TIMEOUT_MS;
     }
     return merged;
 }

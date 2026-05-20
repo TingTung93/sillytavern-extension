@@ -1,5 +1,5 @@
 import { normalizeEndpoint, speechEndpoint } from './selectors.js';
-import { DEFAULT_TIMEOUT_MS } from './settings.js';
+import { DEFAULT_TIMEOUT_MS, DEFAULT_GENERATION_TIMEOUT_MS } from './settings.js';
 
 export class LocalTtsServerApi {
     constructor(getSettings, fetchImpl) {
@@ -15,14 +15,20 @@ export class LocalTtsServerApi {
         return normalizeEndpoint(this.getSettings().provider_endpoint);
     }
 
-    timeoutMs() {
+    discoveryTimeoutMs() {
         const value = Number(this.getSettings().timeout_ms);
         return Number.isFinite(value) && value >= 1000 ? value : DEFAULT_TIMEOUT_MS;
     }
 
-    async fetchWithTimeout(url, init = {}) {
+    generationTimeoutMs() {
+        const value = Number(this.getSettings().generation_timeout_ms);
+        return Number.isFinite(value) && value >= 1000 ? value : DEFAULT_GENERATION_TIMEOUT_MS;
+    }
+
+    async fetchWithTimeout(url, init = {}, timeoutMs) {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this.timeoutMs());
+        const limit = Number.isFinite(timeoutMs) ? timeoutMs : this.discoveryTimeoutMs();
+        const timer = setTimeout(() => controller.abort(), limit);
         try {
             return await this.fetchImpl(url, { ...init, signal: controller.signal });
         } finally {
@@ -69,11 +75,15 @@ export class LocalTtsServerApi {
 
     async generate(requestBody) {
         const settings = this.getSettings();
-        const response = await this.fetchWithTimeout(speechEndpoint(settings.provider_endpoint), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
+        const response = await this.fetchWithTimeout(
+            speechEndpoint(settings.provider_endpoint),
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            },
+            this.generationTimeoutMs(),
+        );
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${await response.text()}`);

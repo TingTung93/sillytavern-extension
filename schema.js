@@ -89,8 +89,11 @@ export function renderSettingsHtml(globalCaps, engineCapability) {
                     <option value="presets-only">Voice+preset selectors only</option>
                 </select>
 
-                <label for="local_tts_server_timeout_ms">Request timeout (ms)</label>
-                <input id="local_tts_server_timeout_ms" type="number" class="text_pole" min="1000" step="500">
+                <label for="local_tts_server_timeout_ms">Discovery timeout (ms)</label>
+                <input id="local_tts_server_timeout_ms" type="number" class="text_pole" min="1000" step="500" title="Timeout for /status, voices, presets, and capabilities calls. Short is fine — these requests should return in milliseconds.">
+
+                <label for="local_tts_server_generation_timeout_ms">Generation timeout (ms)</label>
+                <input id="local_tts_server_generation_timeout_ms" type="number" class="text_pole" min="1000" step="1000" title="Timeout for /v1/audio/speech. Non-streaming TTS holds the connection open until the full clip is generated server-side, which for long text on local hardware can take minutes. Default 600000 (10 min) matches the server's Fish S2 default.">
             </div>
 
             <label for="local_tts_server_fallback_voices">Fallback voices</label>

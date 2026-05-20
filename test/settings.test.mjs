@@ -33,3 +33,20 @@ test('mergeSettings supplies timeout_ms default', () => {
     assert.equal(typeof mergeSettings({}).timeout_ms, 'number');
     assert.ok(mergeSettings({}).timeout_ms >= 1000);
 });
+
+test('mergeSettings supplies a generation_timeout_ms default well above discovery timeout', () => {
+    const merged = mergeSettings({});
+    assert.equal(typeof merged.generation_timeout_ms, 'number');
+    // TTS gen on local hardware can take minutes; default must accommodate
+    // the server's own Fish S2 timeout (600s) and be much larger than the
+    // discovery timeout.
+    assert.ok(merged.generation_timeout_ms >= 300_000,
+        `generation_timeout_ms default must be at least 5 minutes (was ${merged.generation_timeout_ms}ms)`);
+    assert.ok(merged.generation_timeout_ms > merged.timeout_ms * 5,
+        'generation_timeout_ms must be substantially larger than the discovery timeout_ms');
+});
+
+test('mergeSettings snaps invalid generation_timeout_ms back to default', () => {
+    assert.ok(mergeSettings({ generation_timeout_ms: 'not a number' }).generation_timeout_ms >= 300_000);
+    assert.ok(mergeSettings({ generation_timeout_ms: 500 }).generation_timeout_ms >= 300_000);
+});

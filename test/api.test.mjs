@@ -64,6 +64,41 @@ test('generate sends the request body verbatim (no client-side mutation)', async
     assert.deepEqual(JSON.parse(capturedBody), payload);
 });
 
+test('discovery requests use timeout_ms; generation uses generation_timeout_ms (so long TTS generations are not killed by the discovery timeout)', async () => {
+    // Same hanging fetch for both calls. We control which timeout fires by
+    // setting timeout_ms short and generation_timeout_ms long.
+    function hangingFetch(url, init) {
+        return new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+                const e = new Error('aborted');
+                e.name = 'AbortError';
+                reject(e);
+            });
+        });
+    }
+
+    const discoveryApi = new LocalTtsServerApi(
+        () => ({ provider_endpoint: 'http://x', timeout_ms: 1_000, generation_timeout_ms: 60_000 }),
+        hangingFetch,
+    );
+    const discStart = Date.now();
+    await assert.rejects(discoveryApi.status(), (e) => e.name === 'AbortError' || /abort/i.test(e.message));
+    const discElapsed = Date.now() - discStart;
+    assert.ok(discElapsed < 1500, `status() should abort near 1000ms (was ${discElapsed}ms)`);
+
+    const generateApi = new LocalTtsServerApi(
+        () => ({ provider_endpoint: 'http://x', timeout_ms: 1_000, generation_timeout_ms: 2_500 }),
+        hangingFetch,
+    );
+    const genStart = Date.now();
+    await assert.rejects(
+        generateApi.generate({ model: 'm', input: 'hi', voice: 'a', response_format: 'mp3', speed: 1, stream: false }),
+        (e) => e.name === 'AbortError' || /abort/i.test(e.message),
+    );
+    const genElapsed = Date.now() - genStart;
+    assert.ok(genElapsed >= 2400, `generate() must wait for generation_timeout_ms (~2500ms), was ${genElapsed}ms (would be ~1000ms if discovery timeout were applied)`);
+});
+
 test('request aborts when timeout elapses', async () => {
     let signalSeen;
     const hangingFetch = (url, init) => {
