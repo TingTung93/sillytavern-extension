@@ -28,16 +28,24 @@ Restart or reload SillyTavern.
 
 ### Settings
 
+- **Engine** — shows the server's currently active engine. The server runs one
+  engine at a time, so this is effectively read-only; other engines appear
+  disabled for discoverability.
 - **Format** — `mp3` (default) or `wav`.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset
   combinations, or both.
 - **Fallback voices** — comma-separated selector list used when server discovery
   fails. Click **Snapshot discovered** to capture the currently loaded voices
   into this field so they remain available offline.
-- **Speed / Exaggeration / Temperature / Seed** — generation overrides. Leave
-  numeric fields blank to use the server's defaults.
-- **Request timeout (ms)** — how long to wait for a single fetch before
-  aborting. Default 60000.
+- **Generation parameters** — rendered dynamically from the server's
+  `/api/capabilities` for the active engine (e.g. exaggeration / temperature /
+  top P / top K / repetition penalty for Chatterbox; temperature / top P /
+  repetition penalty / seed / lead-in tag for Fish S2). Leave a field blank to
+  use the server's default.
+- **Discovery timeout (ms)** — how long to wait for `/status`, voices, presets,
+  and capabilities calls before aborting. Default 60000.
+- **Generation timeout (ms)** — how long to wait for `/v1/audio/speech`. Long TTS
+  on local hardware can take minutes. Default 600000.
 - **Paralinguistic tags / Semantic tags** — three-state controls:
   - `Server default` — the request omits the field so server presets decide.
   - `Force on` — always send `true`.
@@ -48,6 +56,8 @@ Restart or reload SillyTavern.
 - `GET /status`
 - `GET /api/voices`
 - `GET /api/presets`
+- `GET /api/capabilities`
+- `GET /api/capabilities/{engine}`
 - `POST /v1/audio/speech`
 
 ## Voice Selectors
