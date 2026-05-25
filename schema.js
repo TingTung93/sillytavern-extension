@@ -44,8 +44,14 @@ function renderParameterControl(param) {
         return `${label}<select id="${id}" class="text_pole" data-param="${escapeAttr(param.id)}" data-type="tristate"${description}>${opts}</select>`;
     }
 
-    const type = param.type === 'int' ? 'number' : 'number';
-    return `${label}<input id="${id}" type="${type}" class="text_pole" data-param="${escapeAttr(param.id)}" data-type="${escapeAttr(param.type)}"${numberAttr('min', param.min)}${numberAttr('max', param.max)}${numberAttr('step', param.step)}${placeholder}${description}>`;
+    if (param.type === 'string') {
+        const stringPlaceholder = param.default
+            ? ` placeholder="${escapeAttr(param.default)} default"`
+            : ' placeholder="optional"';
+        return `${label}<input id="${id}" type="text" class="text_pole" data-param="${escapeAttr(param.id)}" data-type="string" maxlength="200"${stringPlaceholder}${description}>`;
+    }
+
+    return `${label}<input id="${id}" type="number" class="text_pole" data-param="${escapeAttr(param.id)}" data-type="${escapeAttr(param.type)}"${numberAttr('min', param.min)}${numberAttr('max', param.max)}${numberAttr('step', param.step)}${placeholder}${description}>`;
 }
 
 export function renderSettingsHtml(globalCaps, engineCapability) {
@@ -124,6 +130,9 @@ function coerceParameterValue(param, raw) {
         if (trimmed === 'on') return true;
         if (trimmed === 'off') return false;
         return undefined; // 'default' → omit
+    }
+    if (param.type === 'string') {
+        return trimmed; // blank already returned undefined above
     }
     if (param.type === 'int') {
         const n = Number(trimmed);

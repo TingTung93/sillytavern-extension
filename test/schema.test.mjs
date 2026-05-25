@@ -43,6 +43,7 @@ const SAMPLE_FISH = {
         { id: 'top_p',              type: 'float', label: 'Top P',              min: 0, max: 1, step: 0.01, default: 0.95 },
         { id: 'repetition_penalty', type: 'float', label: 'Repetition penalty', min: 0,         step: 0.05, default: 1.2 },
         { id: 'seed',               type: 'int',   label: 'Seed',                              step: 1,    default: null },
+        { id: 'lead_in_tag',        type: 'string', label: 'Lead-in tag',                                  default: '', description: 'Optional tag.' },
     ],
 };
 
@@ -117,6 +118,11 @@ test('renderSettingsHtml falls back gracefully when no engine capability is prov
     }
 });
 
+test('renderSettingsHtml renders string parameters as a text input, not a number input', () => {
+    const html = renderSettingsHtml(SAMPLE_GLOBAL, SAMPLE_FISH);
+    assert.match(html, /<input id="local_tts_server_param_lead_in_tag" type="text"[^>]*data-type="string"/);
+});
+
 // ──────────────────────────────────────────────────────────────
 // readSchemaValues
 // ──────────────────────────────────────────────────────────────
@@ -144,6 +150,16 @@ test('readSchemaValues passes tristate values verbatim and omits "default"', () 
     const values = readSchemaValues(read, SAMPLE_GLOBAL, SAMPLE_CHATTERBOX);
     assert.equal(values.paralinguistic_tags, true);
     assert.equal(values.semantic_tags, undefined);
+});
+
+test('readSchemaValues keeps non-blank string parameters and omits blank ones', () => {
+    const read = (id) => ({ lead_in_tag: '  expressive storytelling  ' })[id];
+    const values = readSchemaValues(read, SAMPLE_GLOBAL, SAMPLE_FISH);
+    assert.equal(values.lead_in_tag, 'expressive storytelling');
+
+    const blankRead = (id) => ({ lead_in_tag: '   ' })[id];
+    const blankValues = readSchemaValues(blankRead, SAMPLE_GLOBAL, SAMPLE_FISH);
+    assert.equal('lead_in_tag' in blankValues, false);
 });
 
 test('readSchemaValues ignores fields not in the active engine schema', () => {

@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     top_k: '',
     repetition_penalty: '',
     seed: -1,
+    lead_in_tag: '',
     paralinguistic_tags: 'default',
     semantic_tags: 'default',
 });
