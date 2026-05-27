@@ -151,6 +151,21 @@ test('engineCapability(id) GETs /api/capabilities/{id} and returns body', async 
     assert.equal(cap.id, 'chatterbox-turbo');
 });
 
+test('switchEngine(id) POSTs /api/engine with the engine id', async () => {
+    let lastUrl, lastInit;
+    const fakeFetch = (url, init) => {
+        lastUrl = url;
+        lastInit = init;
+        return Promise.resolve(jsonResponse({ engine: 'omnivoice', state: 'ready' }));
+    };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    const body = await api.switchEngine('omnivoice');
+    assert.equal(lastUrl, 'http://127.0.0.1:7851/api/engine');
+    assert.equal(lastInit.method, 'POST');
+    assert.equal(JSON.parse(lastInit.body).engine, 'omnivoice');
+    assert.equal(body.engine, 'omnivoice');
+});
+
 test('engineCapability returns null for 404 instead of throwing', async () => {
     const fakeFetch = () => Promise.resolve({
         ok: false,

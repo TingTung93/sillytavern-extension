@@ -12,6 +12,7 @@ import {
     renderSettingsHtml,
     readSchemaValues,
     buildSpeechRequest,
+    schemaParams,
 } from './schema.js';
 
 const ROOT_ID = 'local_tts_server_root';
@@ -108,10 +109,7 @@ export class LocalTtsServerProvider {
     }
 
     allSchemaParams() {
-        return [
-            ...(this.engineCap?.parameters ?? []),
-            ...(this.globalCaps?.request_fields ?? []),
-        ];
+        return schemaParams(this.globalCaps, this.engineCap);
     }
 
     bindHandlers() {
@@ -120,13 +118,18 @@ export class LocalTtsServerProvider {
             const event = $el.is('select') ? 'change' : 'input';
             $el.on(event, () => this.onSettingsChange());
         }
-        $('#local_tts_server_engine').on('change', () => {
-            // The active engine is server-fixed (one engine at a time). If the
-            // selection somehow drifts, snap back so request payloads always
-            // match what the server is running.
+        $('#local_tts_server_engine').on('change', async () => {
+            // Switch the server's active engine live (one engine at a time), then
+            // re-render so the panel reflects the new engine's capabilities.
             const selected = String($('#local_tts_server_engine').val() || '');
-            if (selected !== this.settings.model) {
+            if (!selected || selected === this.settings.model) return;
+            this.setStatus(`Switching engine to ${selected}…`);
+            try {
+                await this.api.switchEngine(selected);
+                await this.refreshCapabilitiesAndRender();
+            } catch (error) {
                 $('#local_tts_server_engine').val(this.settings.model);
+                this.setStatus(`Engine switch failed: ${error.message}`, false);
             }
         });
         for (const param of this.allSchemaParams()) {

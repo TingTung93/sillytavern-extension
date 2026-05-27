@@ -73,6 +73,22 @@ export class LocalTtsServerApi {
         return response.json();
     }
 
+    async switchEngine(engineId) {
+        const response = await this.fetchWithTimeout(
+            `${this.baseUrl()}/api/engine`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ engine: engineId }),
+            },
+            this.generationTimeoutMs(),
+        );
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        return response.json();
+    }
+
     async generate(requestBody) {
         const settings = this.getSettings();
         const response = await this.fetchWithTimeout(
