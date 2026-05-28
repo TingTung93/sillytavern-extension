@@ -35,9 +35,12 @@ function renderParameterControl(param) {
         ? ` title="${escapeAttr(param.description)}"`
         : '';
     const label = `<label for="${id}"${description}>${escapeHtml(param.label)}</label>`;
-    const placeholder = param.default !== undefined && param.default !== null
-        ? ` placeholder="${escapeAttr(param.default)} default"`
-        : ' placeholder="server default"';
+    // Placeholder is a generic "server default" hint. The control is
+    // pre-populated with `param.default` (the effective server default —
+    // admin override applied) by provider.populateFields, so the placeholder
+    // only shows when the user explicitly clears the field, which still
+    // means "let the server resolve."
+    const placeholder = ' placeholder="server default"';
 
     if (param.type === 'tristate') {
         const opts = TRISTATE_OPTIONS.map(

@@ -102,9 +102,24 @@ export class LocalTtsServerProvider {
             $(`#${id}`).val(this.settings[field] ?? '');
         }
         for (const param of this.allSchemaParams()) {
-            const value = this.settings[param.id];
-            const stringified = value === undefined || value === null ? '' : String(value);
-            $(`[data-param="${param.id}"]`).val(stringified === '' && param.type === 'tristate' ? 'default' : stringified);
+            const stored = this.settings[param.id];
+            // Pre-populate from the effective server default (param.default,
+            // which the server has already overlaid with any admin override)
+            // when the user hasn't stored an explicit value. The form is then
+            // a real preview of what will be sent. Clearing a field still
+            // means "server default" — onSettingsChange writes the blank back,
+            // populateFields then re-fills with the current default next render.
+            let display;
+            if (stored !== undefined && stored !== null && stored !== '') {
+                display = String(stored);
+            } else if (param.type === 'tristate') {
+                display = 'default';
+            } else if (param.default !== undefined && param.default !== null && param.default !== '') {
+                display = String(param.default);
+            } else {
+                display = '';
+            }
+            $(`[data-param="${param.id}"]`).val(display);
         }
     }
 
