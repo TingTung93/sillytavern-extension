@@ -240,11 +240,25 @@ export class LocalTtsServerProvider {
         });
     }
 
+    // Prefer the WebSocket channel when the server advertises it (keep-alive +
+    // progress, immune to the fetch total-timeout). Any WS failure falls back to
+    // the HTTP POST so generation still works against older servers or flaky WS.
+    async generateRequest(requestBody) {
+        if (this.globalCaps?.transport?.websocket) {
+            try {
+                return await this.api.generateViaWebSocket(requestBody);
+            } catch (error) {
+                console.warn(`[tts-server] WebSocket generation failed, falling back to HTTP: ${error?.message}`);
+            }
+        }
+        return this.api.generate(requestBody);
+    }
+
     // voiceMapKey is part of SillyTavern's provider contract but the composite
     // "voice+preset" selector already encodes everything the server needs.
     async generateTts(text, voiceId, voiceMapKey) {
         void voiceMapKey;
-        return this.api.generate(this.buildRequestBody(text, voiceId));
+        return this.generateRequest(this.buildRequestBody(text, voiceId));
     }
 
     revokePreviewUrl() {
@@ -259,7 +273,7 @@ export class LocalTtsServerProvider {
         this.audioElement.currentTime = 0;
         this.revokePreviewUrl();
 
-        const response = await this.api.generate(this.buildRequestBody(getPreviewString('en-US'), voiceId));
+        const response = await this.generateRequest(this.buildRequestBody(getPreviewString('en-US'), voiceId));
         const blob = await response.blob();
         this.previewBlobUrl = URL.createObjectURL(blob);
         this.audioElement.src = this.previewBlobUrl;

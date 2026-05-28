@@ -10,6 +10,11 @@ export function speechEndpoint(baseUrl) {
     return `${normalizeEndpoint(baseUrl)}/v1/audio/speech`;
 }
 
+export function streamEndpoint(baseUrl) {
+    const ws = normalizeEndpoint(baseUrl).replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:');
+    return `${ws}/v1/audio/stream`;
+}
+
 export function voiceIdOf(voice) {
     return String(voice?.voice_id || voice?.id || '').trim();
 }

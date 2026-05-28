@@ -187,6 +187,104 @@ test('engineCapability returns null when id is empty (no fetch)', async () => {
     assert.equal(fetchCalls, 0);
 });
 
+// --- WebSocket generation path -------------------------------------------
+
+class MockWebSocket {
+    constructor(url) {
+        this.url = url;
+        this.sent = [];
+        this.closed = false;
+        MockWebSocket.last = this;
+        // onopen handler is assigned after construction; defer so it sees it.
+        queueMicrotask(() => { if (this.onopen) this.onopen(); });
+    }
+    send(data) { this.sent.push(data); }
+    close() { this.closed = true; }
+    emit(data) { if (this.onmessage) this.onmessage({ data }); }
+    error() { if (this.onerror) this.onerror({}); }
+    end() { if (this.onclose) this.onclose({}); }
+}
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('generateViaWebSocket sends a generate frame on open and resolves with assembled audio', async () => {
+    const api = new LocalTtsServerApi(makeSettings({ response_format: 'wav' }), undefined, MockWebSocket);
+    const body = { model: 'chatterbox-turbo', input: 'hi', voice: 'alice', response_format: 'wav', speed: 1 };
+    const pending = api.generateViaWebSocket(body);
+    await flush();
+
+    const ws = MockWebSocket.last;
+    assert.equal(ws.url, 'ws://127.0.0.1:7851/v1/audio/stream');
+    const sent = JSON.parse(ws.sent[0]);
+    assert.equal(sent.type, 'generate');
+    assert.ok(sent.id.startsWith('st-'));
+    assert.deepEqual(sent.request, body);
+
+    ws.emit(new Uint8Array([1, 2, 3]).buffer);
+    ws.emit(new Uint8Array([4, 5]).buffer);
+    ws.emit(JSON.stringify({ type: 'done', id: sent.id, bytes: 5, duration_ms: 10 }));
+
+    const response = await pending;
+    assert.equal(response.ok, true);
+    assert.equal(response.headers.get('Content-Type'), 'audio/wav');
+    const blob = await response.blob();
+    assert.equal(blob.size, 5);
+    assert.ok(ws.closed, 'socket closed after completion');
+});
+
+test('generateViaWebSocket rejects on an error frame', async () => {
+    const api = new LocalTtsServerApi(makeSettings(), undefined, MockWebSocket);
+    const pending = api.generateViaWebSocket({ input: 'hi', voice: 'alice', response_format: 'mp3' });
+    await flush();
+    const ws = MockWebSocket.last;
+    ws.emit(JSON.stringify({ type: 'error', id: 'x', code: 'oom', detail: 'CUDA out of memory' }));
+    await assert.rejects(pending, (error) => /oom/.test(error.message));
+});
+
+test('generateViaWebSocket rejects when the socket closes before done', async () => {
+    const api = new LocalTtsServerApi(makeSettings(), undefined, MockWebSocket);
+    const pending = api.generateViaWebSocket({ input: 'hi', voice: 'alice', response_format: 'mp3' });
+    await flush();
+    MockWebSocket.last.end();
+    await assert.rejects(pending, (error) => /closed before completion/.test(error.message));
+});
+
+test('a frame resets the idle timeout, so heartbeats keep a slow generation alive', async () => {
+    // Idle limit 1000ms (the api clamps anything below). A ping at 700ms resets
+    // it (would otherwise fire at 1000), and done at 1300ms then succeeds —
+    // proving the timer is per-frame, not a single total-time deadline.
+    const api = new LocalTtsServerApi(
+        makeSettings({ generation_timeout_ms: 1000 }),
+        undefined,
+        MockWebSocket,
+    );
+    const pending = api.generateViaWebSocket({ input: 'hi', voice: 'alice', response_format: 'wav' });
+    await flush();
+    const ws = MockWebSocket.last;
+    setTimeout(() => ws.emit(JSON.stringify({ type: 'ping' })), 700);
+    setTimeout(() => {
+        ws.emit(new Uint8Array([1, 2]).buffer);
+        ws.emit(JSON.stringify({ type: 'done', id: 'x', bytes: 2, duration_ms: 1 }));
+    }, 1300);
+    const response = await pending;
+    const blob = await response.blob();
+    assert.equal(blob.size, 2);
+});
+
+test('generateViaWebSocket times out when idle past the generation timeout', async () => {
+    // 1000ms is the minimum the api honours; below it the 600s default applies.
+    const api = new LocalTtsServerApi(
+        makeSettings({ generation_timeout_ms: 1000 }),
+        undefined,
+        MockWebSocket,
+    );
+    const start = Date.now();
+    const pending = api.generateViaWebSocket({ input: 'hi', voice: 'alice', response_format: 'mp3' });
+    // Never emit anything: the idle timer must fire.
+    await assert.rejects(pending, (error) => /idle timeout/.test(error.message));
+    assert.ok(Date.now() - start < 1500, 'idle timeout fires near 1000ms');
+});
+
 test('does not invoke fetchImpl with the api instance as receiver (avoids browser "Illegal invocation")', async () => {
     // Browsers throw TypeError when fetch is called with a non-window `this`.
     // Simulate that: this fake throws if called with `this === api instance`.
