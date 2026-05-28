@@ -28,14 +28,16 @@ const TRISTATE_OPTIONS = [
 ];
 
 function renderParameterControl(param) {
-    const label = `<label for="local_tts_server_param_${escapeAttr(param.id)}">${escapeHtml(param.label)}</label>`;
     const id = `local_tts_server_param_${escapeAttr(param.id)}`;
-    const placeholder = param.default !== undefined && param.default !== null
-        ? ` placeholder="${escapeAttr(param.default)} default"`
-        : ' placeholder="server default"';
+    // Apply the tooltip to BOTH the label and the control: browser tooltips do
+    // not cascade between sibling elements, and users hover either one.
     const description = param.description
         ? ` title="${escapeAttr(param.description)}"`
         : '';
+    const label = `<label for="${id}"${description}>${escapeHtml(param.label)}</label>`;
+    const placeholder = param.default !== undefined && param.default !== null
+        ? ` placeholder="${escapeAttr(param.default)} default"`
+        : ' placeholder="server default"';
 
     if (param.type === 'tristate') {
         const opts = TRISTATE_OPTIONS.map(
