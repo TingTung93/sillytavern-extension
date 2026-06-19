@@ -278,16 +278,34 @@ export class LocalTtsServerProvider {
         return this.api.generate(requestBody);
     }
 
-    // Split message text into synthesis chunks on paragraph or line boundaries.
-    // Double newlines are tried first so short-line prose stays together.
+    // Max characters to send in a single synthesis request for the active engine.
+    // Chatterbox auto-chunks at sentence boundaries internally, so we pass it the
+    // full text and let the model handle splitting. Fish S2 Pro has no internal
+    // chunking and degrades past ~939 tokens (~3 000 English chars). Unknown
+    // engines get a conservative 2 000-char limit.
+    // Prefers a server-advertised max_chars on the engine capability if present.
+    _maxCharsPerChunk() {
+        const serverLimit = this.engineCap?.max_chars ?? this.globalCaps?.max_chars;
+        if (Number.isFinite(serverLimit) && serverLimit > 0) return serverLimit;
+        const model = String(this.settings.model || '').toLowerCase();
+        if (model.includes('chatterbox')) return Infinity; // auto-chunks internally
+        if (model.includes('fish')) return 3000;
+        return 2000;
+    }
+
+    // Split text only when it exceeds the engine's practical limit.
+    // Tries paragraph breaks first, then line breaks. If the text cannot be
+    // split into sub-limit pieces it is returned as-is (server truncates).
     _splitChunks(text) {
         const s = String(text || '').trim();
         if (!s) return [];
+        const limit = this._maxCharsPerChunk();
+        if (!Number.isFinite(limit) || s.length <= limit) return [s];
         for (const re of [/\n\n+/, /\n/]) {
             const parts = s.split(re).map(p => p.trim()).filter(Boolean);
             if (parts.length > 1) return parts;
         }
-        return [s];
+        return [s]; // no natural split point — send as-is
     }
 
     // voiceMapKey is part of SillyTavern's provider contract but the composite
