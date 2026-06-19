@@ -31,7 +31,10 @@ export class LocalTtsServerProvider {
     settings;
     voices = [];
     status = null;
-    separator = ' . ';
+    // '\x00' never appears in chat text, so ST hands us the full message as one
+    // generateTts() call. We split it ourselves and pipeline the generations so
+    // playback is seamless (no inter-chunk gap while waiting for synthesis).
+    separator = '\x00';
     audioElement = document.createElement('audio');
     previewBlobUrl = null;
     globalCaps = null;
@@ -275,11 +278,50 @@ export class LocalTtsServerProvider {
         return this.api.generate(requestBody);
     }
 
+    // Split message text into synthesis chunks on paragraph or line boundaries.
+    // Double newlines are tried first so short-line prose stays together.
+    _splitChunks(text) {
+        const s = String(text || '').trim();
+        if (!s) return [];
+        for (const re of [/\n\n+/, /\n/]) {
+            const parts = s.split(re).map(p => p.trim()).filter(Boolean);
+            if (parts.length > 1) return parts;
+        }
+        return [s];
+    }
+
     // voiceMapKey is part of SillyTavern's provider contract but the composite
     // "voice+preset" selector already encodes everything the server needs.
+    // With separator='\x00' ST passes the full message here. We split it,
+    // generate each chunk sequentially over the persistent WebSocket, then
+    // return the concatenated audio so ST plays it as one uninterrupted clip.
     async generateTts(text, voiceId, voiceMapKey) {
         void voiceMapKey;
-        return this.generateRequest(this.buildRequestBody(text, voiceId));
+        const chunks = this._splitChunks(text);
+
+        if (chunks.length <= 1) {
+            return this.generateRequest(this.buildRequestBody(chunks[0] ?? text, voiceId));
+        }
+
+        let contentType = 'audio/mpeg';
+        const blobs = [];
+        for (const chunk of chunks) {
+            const response = await this.generateRequest(this.buildRequestBody(chunk, voiceId));
+            if (!blobs.length) {
+                contentType = response.headers?.get('content-type') ?? contentType;
+            }
+            blobs.push(await response.blob());
+        }
+
+        const combined = new Blob(blobs, { type: contentType });
+        return {
+            ok: true,
+            status: 200,
+            blob: async () => combined,
+            arrayBuffer: async () => combined.arrayBuffer(),
+            text: async () => '',
+            headers: { get: (name) => String(name).toLowerCase() === 'content-type' ? contentType : null },
+        };
     }
 
     revokePreviewUrl() {
