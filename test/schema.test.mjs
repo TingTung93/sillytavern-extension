@@ -75,14 +75,37 @@ test('renderSettingsHtml emits an <option> for each engine and marks the active 
     assert.match(html, /<option value="placeholder"(?![^>]*selected)/);
 });
 
-test('renderSettingsHtml disables engine options that are not the server-active engine', () => {
-    // Server only runs one engine at a time; selecting any other guarantees a
-    // request validation 400. The dropdown should still show known engines for
-    // discoverability but make non-active ones unselectable.
+test('renderSettingsHtml leaves every engine option selectable for live switching', () => {
+    // Engines are now selectable; picking a non-active one switches the server's
+    // active engine via POST /api/engine.
     const html = renderSettingsHtml(SAMPLE_GLOBAL, SAMPLE_CHATTERBOX);
-    assert.match(html, /<option value="fish-s2-pro"[^>]*disabled/);
-    assert.match(html, /<option value="placeholder"[^>]*disabled/);
+    assert.doesNotMatch(html, /<option value="fish-s2-pro"[^>]*disabled/);
+    assert.doesNotMatch(html, /<option value="placeholder"[^>]*disabled/);
     assert.doesNotMatch(html, /<option value="chatterbox-turbo"[^>]*disabled/);
+});
+
+
+test('renderSettingsHtml renders engine-scoped request_fields (tags/chunk live per-engine)', () => {
+    const engineWithFields = {
+        ...SAMPLE_CHATTERBOX,
+        request_fields: [
+            { id: 'paralinguistic_tags', type: 'tristate', label: 'Paralinguistic tags', default: 'default' },
+            { id: 'chunk', type: 'tristate', label: 'Server-side chunking', default: 'default' },
+        ],
+    };
+    const emptyGlobal = { ...SAMPLE_GLOBAL, request_fields: [] };
+    const html = renderSettingsHtml(emptyGlobal, engineWithFields);
+    assert.ok(html.includes('data-param="paralinguistic_tags"'));
+    assert.ok(html.includes('data-param="chunk"'));
+});
+
+
+test('readSchemaValues reads engine-scoped request_fields', () => {
+    const engineWithFields = { ...SAMPLE_CHATTERBOX, request_fields: [{ id: 'chunk', type: 'tristate', label: 'Chunk', default: 'default' }] };
+    const emptyGlobal = { ...SAMPLE_GLOBAL, request_fields: [] };
+    const read = (id) => ({ chunk: 'off' })[id];
+    const values = readSchemaValues(read, emptyGlobal, engineWithFields);
+    assert.equal(values.chunk, false);
 });
 
 test('renderSettingsHtml emits an input for each engine-specific parameter', () => {

@@ -28,14 +28,19 @@ const TRISTATE_OPTIONS = [
 ];
 
 function renderParameterControl(param) {
-    const label = `<label for="local_tts_server_param_${escapeAttr(param.id)}">${escapeHtml(param.label)}</label>`;
     const id = `local_tts_server_param_${escapeAttr(param.id)}`;
-    const placeholder = param.default !== undefined && param.default !== null
-        ? ` placeholder="${escapeAttr(param.default)} default"`
-        : ' placeholder="server default"';
+    // Apply the tooltip to BOTH the label and the control: browser tooltips do
+    // not cascade between sibling elements, and users hover either one.
     const description = param.description
         ? ` title="${escapeAttr(param.description)}"`
         : '';
+    const label = `<label for="${id}"${description}>${escapeHtml(param.label)}</label>`;
+    // Placeholder is a generic "server default" hint. The control is
+    // pre-populated with `param.default` (the effective server default —
+    // admin override applied) by provider.populateFields, so the placeholder
+    // only shows when the user explicitly clears the field, which still
+    // means "let the server resolve."
+    const placeholder = ' placeholder="server default"';
 
     if (param.type === 'tristate') {
         const opts = TRISTATE_OPTIONS.map(
@@ -54,25 +59,33 @@ function renderParameterControl(param) {
     return `${label}<input id="${id}" type="number" class="text_pole" data-param="${escapeAttr(param.id)}" data-type="${escapeAttr(param.type)}"${numberAttr('min', param.min)}${numberAttr('max', param.max)}${numberAttr('step', param.step)}${placeholder}${description}>`;
 }
 
+// The request controls an engine actually honours: its own parameters, its
+// engine-scoped request_fields (tags/chunk), plus any global request_fields.
+// Kept in one place so render/read/build all agree on the field set.
+export function schemaParams(globalCaps, engineCapability) {
+    return [
+        ...(engineCapability?.parameters ?? []),
+        ...(engineCapability?.request_fields ?? []),
+        ...(globalCaps?.request_fields ?? []),
+    ];
+}
+
 export function renderSettingsHtml(globalCaps, engineCapability) {
     const engines = (globalCaps?.engines ?? []).map((engine) => {
-        // The server only runs one engine at a time, so non-active engines
-        // are shown for discoverability but cannot be selected — picking one
-        // would always 400 at the validate step in /v1/audio/speech.
+        // Engines are selectable: picking a non-active one switches the server's
+        // active engine live via POST /api/engine (handled in provider.js).
         const selected = engine.is_active ? ' selected' : '';
-        const disabled = engine.is_active ? '' : ' disabled';
         const label = engine.is_active
             ? engine.label || engine.id
-            : `${engine.label || engine.id} (not running)`;
-        return `<option value="${escapeAttr(engine.id)}"${selected}${disabled}>${escapeHtml(label)}</option>`;
+            : `${engine.label || engine.id} (switch)`;
+        return `<option value="${escapeAttr(engine.id)}"${selected}>${escapeHtml(label)}</option>`;
     }).join('');
 
     const formats = (globalCaps?.response_formats ?? []).map((fmt) => {
         return `<option value="${escapeAttr(fmt.id)}">${escapeHtml(fmt.label || fmt.id)}</option>`;
     }).join('');
 
-    const engineParams = (engineCapability?.parameters ?? []).map(renderParameterControl).join('');
-    const globalParams = (globalCaps?.request_fields ?? []).map(renderParameterControl).join('');
+    const params = schemaParams(globalCaps, engineCapability).map(renderParameterControl).join('');
 
     return `
         <div class="tts-server-provider-settings">
@@ -108,7 +121,7 @@ export function renderSettingsHtml(globalCaps, engineCapability) {
                 <button id="local_tts_server_snapshot_fallback" type="button" class="menu_button" title="Save the currently discovered voices into the fallback list so they remain available when the server is offline.">Snapshot discovered</button>
             </div>
 
-            <div class="tts-server-provider-grid">${engineParams}${globalParams}</div>
+            <div class="tts-server-provider-grid">${params}</div>
 
             <div id="local_tts_server_status" class="tts-server-provider-status">Not checked</div>
         </div>`;
@@ -147,11 +160,7 @@ function coerceParameterValue(param, raw) {
 
 export function readSchemaValues(read, globalCaps, engineCapability) {
     const values = {};
-    const schema = [
-        ...(engineCapability?.parameters ?? []),
-        ...(globalCaps?.request_fields ?? []),
-    ];
-    for (const param of schema) {
+    for (const param of schemaParams(globalCaps, engineCapability)) {
         const raw = read(param.id);
         const coerced = coerceParameterValue(param, raw);
         if (coerced !== undefined) values[param.id] = coerced;
@@ -183,10 +192,7 @@ export function buildSpeechRequest({
         stream,
     };
 
-    const allowedIds = new Set([
-        ...((engineCapability?.parameters ?? []).map((p) => p.id)),
-        ...((globalCapabilities?.request_fields ?? []).map((p) => p.id)),
-    ]);
+    const allowedIds = new Set(schemaParams(globalCapabilities, engineCapability).map((p) => p.id));
 
     for (const [key, value] of Object.entries(values)) {
         if (!allowedIds.has(key)) continue;

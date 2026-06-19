@@ -12,6 +12,7 @@ import {
     renderSettingsHtml,
     readSchemaValues,
     buildSpeechRequest,
+    schemaParams,
 } from './schema.js';
 
 const ROOT_ID = 'local_tts_server_root';
@@ -101,17 +102,29 @@ export class LocalTtsServerProvider {
             $(`#${id}`).val(this.settings[field] ?? '');
         }
         for (const param of this.allSchemaParams()) {
-            const value = this.settings[param.id];
-            const stringified = value === undefined || value === null ? '' : String(value);
-            $(`[data-param="${param.id}"]`).val(stringified === '' && param.type === 'tristate' ? 'default' : stringified);
+            const stored = this.settings[param.id];
+            // Pre-populate from the effective server default (param.default,
+            // which the server has already overlaid with any admin override)
+            // when the user hasn't stored an explicit value. The form is then
+            // a real preview of what will be sent. Clearing a field still
+            // means "server default" — onSettingsChange writes the blank back,
+            // populateFields then re-fills with the current default next render.
+            let display;
+            if (stored !== undefined && stored !== null && stored !== '') {
+                display = String(stored);
+            } else if (param.type === 'tristate') {
+                display = 'default';
+            } else if (param.default !== undefined && param.default !== null && param.default !== '') {
+                display = String(param.default);
+            } else {
+                display = '';
+            }
+            $(`[data-param="${param.id}"]`).val(display);
         }
     }
 
     allSchemaParams() {
-        return [
-            ...(this.engineCap?.parameters ?? []),
-            ...(this.globalCaps?.request_fields ?? []),
-        ];
+        return schemaParams(this.globalCaps, this.engineCap);
     }
 
     bindHandlers() {
@@ -120,13 +133,18 @@ export class LocalTtsServerProvider {
             const event = $el.is('select') ? 'change' : 'input';
             $el.on(event, () => this.onSettingsChange());
         }
-        $('#local_tts_server_engine').on('change', () => {
-            // The active engine is server-fixed (one engine at a time). If the
-            // selection somehow drifts, snap back so request payloads always
-            // match what the server is running.
+        $('#local_tts_server_engine').on('change', async () => {
+            // Switch the server's active engine live (one engine at a time), then
+            // re-render so the panel reflects the new engine's capabilities.
             const selected = String($('#local_tts_server_engine').val() || '');
-            if (selected !== this.settings.model) {
+            if (!selected || selected === this.settings.model) return;
+            this.setStatus(`Switching engine to ${selected}…`);
+            try {
+                await this.api.switchEngine(selected);
+                await this.refreshCapabilitiesAndRender();
+            } catch (error) {
                 $('#local_tts_server_engine').val(this.settings.model);
+                this.setStatus(`Engine switch failed: ${error.message}`, false);
             }
         });
         for (const param of this.allSchemaParams()) {
@@ -237,11 +255,25 @@ export class LocalTtsServerProvider {
         });
     }
 
+    // Prefer the WebSocket channel when the server advertises it (keep-alive +
+    // progress, immune to the fetch total-timeout). Any WS failure falls back to
+    // the HTTP POST so generation still works against older servers or flaky WS.
+    async generateRequest(requestBody) {
+        if (this.globalCaps?.transport?.websocket) {
+            try {
+                return await this.api.generateViaWebSocket(requestBody);
+            } catch (error) {
+                console.warn(`[tts-server] WebSocket generation failed, falling back to HTTP: ${error?.message}`);
+            }
+        }
+        return this.api.generate(requestBody);
+    }
+
     // voiceMapKey is part of SillyTavern's provider contract but the composite
     // "voice+preset" selector already encodes everything the server needs.
     async generateTts(text, voiceId, voiceMapKey) {
         void voiceMapKey;
-        return this.api.generate(this.buildRequestBody(text, voiceId));
+        return this.generateRequest(this.buildRequestBody(text, voiceId));
     }
 
     revokePreviewUrl() {
@@ -256,7 +288,7 @@ export class LocalTtsServerProvider {
         this.audioElement.currentTime = 0;
         this.revokePreviewUrl();
 
-        const response = await this.api.generate(this.buildRequestBody(getPreviewString('en-US'), voiceId));
+        const response = await this.generateRequest(this.buildRequestBody(getPreviewString('en-US'), voiceId));
         const blob = await response.blob();
         this.previewBlobUrl = URL.createObjectURL(blob);
         this.audioElement.src = this.previewBlobUrl;
