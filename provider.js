@@ -49,14 +49,18 @@ export class LocalTtsServerProvider {
         return `<div id="${ROOT_ID}" class="tts-server-provider-settings"></div>`;
     }
 
-    async loadSettings(settings) {
+    loadSettings(settings) {
         this.settings = mergeSettings(settings);
-        this.api = new LocalTtsServerApi(() => this.settings);
+        // Don't recreate this.api — it already reads settings via () => this.settings.
+        // If the endpoint URL changed, _getOrOpenSocket() detects the mismatch and reconnects.
 
         const root = $(`#${ROOT_ID}`);
         root.html('<div class="tts-server-provider-status">Loading capabilities…</div>');
 
-        await this.refreshCapabilitiesAndRender();
+        // Fire-and-forget: don't block ST's provider selection on our network round-trips.
+        // generateTts is safe to call before caps arrive — buildSpeechRequest degrades
+        // gracefully (no engine params, HTTP fallback instead of WS) until caps load.
+        this.refreshCapabilitiesAndRender();
     }
 
     async refreshCapabilitiesAndRender() {
@@ -200,8 +204,10 @@ export class LocalTtsServerProvider {
     async checkReady() {
         this.setStatus('Checking server…');
         try {
-            this.status = await this.api.status();
-            this.voices = await this.fetchTtsVoiceObjects();
+            [this.status, this.voices] = await Promise.all([
+                this.api.status(),
+                this.fetchTtsVoiceObjects(),
+            ]);
             const engine = this.status.engine || 'unknown engine';
             const modelStatus = this.status.model_status || this.status.state || 'unknown state';
             this.setStatus(`${engine}: ${modelStatus}. ${this.voices.length} voices available.`, true);
@@ -300,5 +306,6 @@ export class LocalTtsServerProvider {
         this.audioElement.pause();
         this.audioElement.src = '';
         this.revokePreviewUrl();
+        this.api.closeSocket();
     }
 }

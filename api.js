@@ -10,6 +10,11 @@ export class LocalTtsServerApi {
         const impl = fetchImpl ?? ((...args) => fetch(...args));
         this.fetchImpl = (...args) => impl(...args);
         this.webSocketImpl = webSocketImpl ?? (typeof WebSocket !== 'undefined' ? WebSocket : null);
+        // Persistent WebSocket — reused across generateViaWebSocket() calls to
+        // eliminate the per-chunk TCP+WS handshake that causes inter-chunk gaps.
+        this._ws = null;        // open (or opening) WebSocket | null
+        this._wsUrl = null;     // URL the socket was opened against
+        this._activeReq = null; // { onMessage, settle } for the in-flight request
     }
 
     baseUrl() {
@@ -109,72 +114,142 @@ export class LocalTtsServerApi {
         return response;
     }
 
-    // Generate over the WebSocket. The socket's heartbeat resets an *idle*
-    // timer on every frame, so a long generation is never killed by a single
-    // total-time deadline (the failure mode of the fetch path). Binary frames
-    // are assembled into a Blob and returned as a Response so the SillyTavern
-    // provider contract (`response.blob()`) is preserved.
-    async generateViaWebSocket(requestBody) {
-        const WebSocketImpl = this.webSocketImpl;
-        if (!WebSocketImpl) {
-            throw new Error('WebSocket is not available');
+    // Close and discard the persistent socket. Called by provider.dispose() and
+    // whenever the socket is no longer valid.
+    closeSocket() {
+        const ws = this._ws;
+        if (!ws) return;
+        this._ws = null;
+        this._wsUrl = null;
+        try { ws.close(); } catch (e) { /* already closing */ }
+    }
+
+    // Central handler for unexpected socket death (error or close after open).
+    // Fails any in-flight request so the provider can fall back to HTTP.
+    _onSocketDied(ws, err) {
+        if (this._ws === ws) {
+            this._ws = null;
+            this._wsUrl = null;
         }
-        const settings = this.getSettings();
-        const url = streamEndpoint(settings.provider_endpoint);
+        if (err && this._activeReq) {
+            this._activeReq.settle(err);
+            this._activeReq = null;
+        }
+    }
+
+    // Open a fresh WebSocket to `url`, store it as the persistent socket, and
+    // return a Promise that resolves once the socket reaches OPEN state.
+    _openNewSocket(url) {
+        const WS = this.webSocketImpl;
+        const ws = new WS(url);
+        this._ws = ws;
+        this._wsUrl = url;
+        try { ws.binaryType = 'arraybuffer'; } catch (e) { /* node ws lacks the setter */ }
+
+        return new Promise((resolve, reject) => {
+            ws.onopen = () => {
+                // Replace connect-phase handlers with lifetime handlers.
+                ws.onmessage = (event) => { this._activeReq?.onMessage(event.data); };
+                ws.onerror = () => this._onSocketDied(ws, new Error('WebSocket error'));
+                ws.onclose = () => this._onSocketDied(ws, new Error('WebSocket closed unexpectedly'));
+                resolve(ws);
+            };
+            ws.onerror = () => { this._onSocketDied(ws, null); reject(new Error('WebSocket error')); };
+            ws.onclose = () => { this._onSocketDied(ws, null); reject(new Error('WebSocket closed before connecting')); };
+        });
+    }
+
+    // Return the persistent socket if it is open, wait for it if it is still
+    // connecting, or open a new one otherwise.
+    async _getOrOpenSocket() {
+        const url = streamEndpoint(this.getSettings().provider_endpoint);
+        const ws = this._ws;
+
+        if (ws && this._wsUrl === url) {
+            if (ws.readyState === 1 /* OPEN */) return ws;
+            if (ws.readyState === 0 /* CONNECTING */) {
+                // Another call is already opening this socket — piggyback on it.
+                await new Promise((resolve, reject) => {
+                    const onOpen = () => {
+                        ws.removeEventListener('open', onOpen);
+                        ws.removeEventListener('error', onError);
+                        resolve();
+                    };
+                    const onError = () => {
+                        ws.removeEventListener('open', onOpen);
+                        ws.removeEventListener('error', onError);
+                        reject(new Error('WebSocket connect failed'));
+                    };
+                    ws.addEventListener('open', onOpen);
+                    ws.addEventListener('error', onError);
+                });
+                return this._ws; // re-read: _onSocketDied may have cleared it on error
+            }
+        }
+
+        // Stale, closing/closed, or wrong URL — drop it and open fresh.
+        if (ws) {
+            try { ws.close(); } catch (e) { /* already closing */ }
+            this._ws = null;
+            this._wsUrl = null;
+        }
+        return this._openNewSocket(url);
+    }
+
+    // Generate over a persistent WebSocket. The socket's heartbeat resets an
+    // *idle* timer on every frame, so a long generation is never killed by a
+    // single total-time deadline (the failure mode of the fetch path). Binary
+    // frames are assembled into a Blob and returned as a Response so the
+    // SillyTavern provider contract (`response.blob()`) is preserved.
+    // The socket stays open after each request to avoid the per-chunk TCP+WS
+    // handshake that would otherwise add a noticeable gap between paragraphs.
+    async generateViaWebSocket(requestBody) {
+        if (!this.webSocketImpl) throw new Error('WebSocket is not available');
+
+        const socket = await this._getOrOpenSocket();
         const idleLimit = this.generationTimeoutMs();
         const contentType = (requestBody.response_format || 'mp3') === 'wav' ? 'audio/wav' : 'audio/mpeg';
+        const requestId = `st-${Date.now()}`;
 
-        return await new Promise((resolve, reject) => {
-            const socket = new WebSocketImpl(url);
-            try { socket.binaryType = 'arraybuffer'; } catch (error) { /* node ws lacks the setter */ }
+        return new Promise((resolve, reject) => {
             const chunks = [];
             let settled = false;
             let idleTimer = null;
-            const requestId = `st-${Date.now()}`;
 
             const clearIdle = () => { if (idleTimer) clearTimeout(idleTimer); idleTimer = null; };
             const armIdle = () => {
                 clearIdle();
-                idleTimer = setTimeout(() => fail(new Error('WebSocket idle timeout')), idleLimit);
-            };
-            const fail = (error) => {
-                if (settled) return;
-                settled = true;
-                clearIdle();
-                try { socket.close(); } catch (err) { /* already closing */ }
-                reject(error);
-            };
-            const succeed = (value) => {
-                if (settled) return;
-                settled = true;
-                clearIdle();
-                try { socket.close(); } catch (err) { /* already closing */ }
-                resolve(value);
+                idleTimer = setTimeout(() => {
+                    // Close the socket — no frames means the connection is likely dead.
+                    // The next generateViaWebSocket call will reconnect.
+                    this.closeSocket();
+                    settle(new Error('WebSocket idle timeout'));
+                }, idleLimit);
             };
 
-            socket.onopen = () => {
-                armIdle();
-                socket.send(JSON.stringify({ type: 'generate', id: requestId, request: requestBody }));
+            const settle = (err, blob) => {
+                if (settled) return;
+                settled = true;
+                clearIdle();
+                if (this._activeReq?.settle === settle) this._activeReq = null;
+                if (err) reject(err);
+                else resolve(audioResponse(blob, contentType));
             };
-            socket.onerror = () => fail(new Error('WebSocket error'));
-            socket.onclose = () => fail(new Error('WebSocket closed before completion'));
-            socket.onmessage = (event) => {
-                armIdle(); // any frame, including a heartbeat ping, keeps us alive
-                const data = event.data;
-                if (typeof data !== 'string') {
-                    chunks.push(data);
-                    return;
-                }
-                let frame;
-                try { frame = JSON.parse(data); } catch (error) { return; }
-                if (frame.type === 'error') {
-                    fail(new Error(`${frame.code}: ${frame.detail}`));
-                    return;
-                }
-                if (frame.type === 'done') {
-                    succeed(audioResponse(new Blob(chunks, { type: contentType }), contentType));
-                }
+
+            this._activeReq = {
+                settle,
+                onMessage(data) {
+                    armIdle(); // any frame (including heartbeat pings) keeps the timer alive
+                    if (typeof data !== 'string') { chunks.push(data); return; }
+                    let frame;
+                    try { frame = JSON.parse(data); } catch (e) { return; }
+                    if (frame.type === 'error') settle(new Error(`${frame.code}: ${frame.detail}`));
+                    else if (frame.type === 'done') settle(null, new Blob(chunks, { type: contentType }));
+                },
             };
+
+            armIdle();
+            socket.send(JSON.stringify({ type: 'generate', id: requestId, request: requestBody }));
         });
     }
 }

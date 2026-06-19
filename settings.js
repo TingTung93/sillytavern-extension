@@ -10,7 +10,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
     provider_endpoint: DEFAULT_ENDPOINT,
     model: DEFAULT_MODEL,
     response_format: 'mp3',
-    speed: 1,
     selector_mode: 'plain-plus-presets',
     fallback_voices: '',
     timeout_ms: DEFAULT_TIMEOUT_MS,
@@ -22,7 +21,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     top_p: '',
     top_k: '',
     repetition_penalty: '',
-    seed: -1,
+    seed: '',
     lead_in_tag: '',
     paralinguistic_tags: 'default',
     semantic_tags: 'default',
@@ -38,12 +37,7 @@ function migrateTagValue(value) {
 }
 
 export function mergeSettings(settings = {}) {
-    const merged = { ...DEFAULT_SETTINGS };
-    for (const [key, value] of Object.entries(settings || {})) {
-        if (key in DEFAULT_SETTINGS) {
-            merged[key] = value;
-        }
-    }
+    const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
     merged.paralinguistic_tags = migrateTagValue(merged.paralinguistic_tags);
     merged.semantic_tags = migrateTagValue(merged.semantic_tags);
     if (!Number.isFinite(merged.timeout_ms) || merged.timeout_ms < 1000) {

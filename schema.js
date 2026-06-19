@@ -175,8 +175,6 @@ export function readSchemaValues(read, globalCaps, engineCapability) {
 export function buildSpeechRequest({
     engineId,
     response_format = 'mp3',
-    speed = 1,
-    stream = false,
     input,
     voice,
     values = {},
@@ -188,8 +186,7 @@ export function buildSpeechRequest({
         input,
         voice,
         response_format,
-        speed,
-        stream,
+        stream: false,
     };
 
     const allowedIds = new Set(schemaParams(globalCapabilities, engineCapability).map((p) => p.id));
