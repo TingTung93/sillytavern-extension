@@ -239,7 +239,14 @@ export class LocalTtsServerProvider {
             ]);
             const engine = this.status.engine || 'unknown engine';
             const modelStatus = this.status.model_status || this.status.state || 'unknown state';
-            this.setStatus(`${engine}: ${modelStatus}. ${this.voices.length} voices available.`, true);
+            if (!this.voices.length) {
+                this.setStatus(
+                    `${engine}: ${modelStatus}. No server voices uploaded; add reference audio in the TTS Server Voices tab at ${this.api.baseUrl()}, then click Reload.`,
+                    false,
+                );
+            } else {
+                this.setStatus(`${engine}: ${modelStatus}. ${this.voices.length} voices available.`, true);
+            }
         } catch (error) {
             this.voices = parseFallbackVoices(this.settings.fallback_voices);
             this.setStatus(`Server check failed: ${error.message}`, false);
@@ -254,7 +261,11 @@ export class LocalTtsServerProvider {
         try {
             const [voices, presets] = await Promise.all([this.api.voices(), this.api.presets()]);
             const discovered = buildVoiceOptions(voices, presets, this.settings.selector_mode);
-            this.voices = discovered.length ? discovered : parseFallbackVoices(this.settings.fallback_voices);
+            // An empty successful response is authoritative: fallback labels
+            // are only for an unreachable discovery API and are not uploaded
+            // reference voices. Advertising one here caused VoxCPM2 to receive
+            // no ref_audio and silently use its stock speaker.
+            this.voices = discovered;
         } catch (error) {
             this.voices = parseFallbackVoices(this.settings.fallback_voices);
             this.setStatus(`Discovery failed: ${error.message}`, false);

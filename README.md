@@ -31,6 +31,11 @@ last selected provider.
 6. Assign voices in SillyTavern's native voice map.
 7. Use SillyTavern TTS normally.
 
+For VoxCPM2 voice cloning, first open the TTS Server web UI at the configured
+base URL and upload reference audio in its **Voices** tab. Then click Reload in
+SillyTavern and assign the discovered server voice. A fallback label is not a
+voice clone and is only used when discovery cannot reach the server.
+
 ### Settings
 
 - **Engine** — switches the server's active engine. For resident GPU models

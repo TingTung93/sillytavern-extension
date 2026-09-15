@@ -36,6 +36,7 @@ const ENGINE_CAP = {
 function fakeApi(opts = {}) {
     return {
         calls: opts,
+        baseUrl: () => 'http://server:7851',
         capabilities: async () => { if (opts.capsError) throw new Error('boom'); return opts.caps ?? CAPS; },
         runtimes: async () => { if (opts.runtimesError) throw new Error('not supported'); return opts.runtimes ?? { runtimes: [] }; },
         engineCapability: async () => opts.engineCap ?? ENGINE_CAP,
@@ -200,6 +201,19 @@ test('checkReady falls back to configured fallback voices when the server is unr
 
     assert.equal(provider.voices.length, 2, 'uses the fallback voice list');
     assert.match(harness.el('#local_tts_server_status').text, /Server check failed/);
+});
+
+test('successful empty discovery does not advertise fallback labels as cloned voices', async () => {
+    const provider = freshProvider({
+        settings: mergeSettings({ fallback_voices: 'peter' }),
+        api: fakeApi({ voices: [] }),
+    });
+
+    await provider.checkReady();
+
+    assert.deepEqual(provider.voices, []);
+    assert.match(harness.el('#local_tts_server_status').text, /No server voices uploaded/);
+    assert.ok(harness.el('#local_tts_server_status').classes.has('error'));
 });
 
 test('buildRequestBody emits a schema-driven payload from the rendered controls', async () => {
