@@ -14,6 +14,10 @@ SillyTavern/public/scripts/extensions/third-party/tts-server
 
 Restart or reload SillyTavern.
 
+The extension loads immediately before SillyTavern's native TTS extension so
+the `Local TTS Server` provider is registered when SillyTavern restores the
+last selected provider.
+
 ## Usage
 
 1. Start the local TTS server.
