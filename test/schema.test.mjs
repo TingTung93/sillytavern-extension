@@ -84,6 +84,14 @@ test('renderSettingsHtml leaves every engine option selectable for live switchin
     assert.doesNotMatch(html, /<option value="chatterbox-turbo"[^>]*disabled/);
 });
 
+test('renderSettingsHtml identifies resident engines as runtime starts', () => {
+    const html = renderSettingsHtml(SAMPLE_GLOBAL, SAMPLE_CHATTERBOX, {
+        runtimes: [{ runtime_id: 'fish-runtime', engine: 'fish-s2-pro', label: 'Fish runtime' }],
+    });
+    assert.match(html, /Fish S2 Pro \(start runtime\)/);
+    assert.match(html, /Placeholder \(switch\)/);
+});
+
 
 test('renderSettingsHtml renders engine-scoped request_fields (tags/chunk live per-engine)', () => {
     const engineWithFields = {
@@ -212,7 +220,6 @@ test('buildSpeechRequest emits only schema-allowed fields plus the base envelope
         input: 'Hello',
         voice: 'alice',
         response_format: 'mp3',
-        speed: 1,
         stream: false,
         temperature: 0.7,
         top_k: 500,
@@ -249,7 +256,7 @@ test('buildSpeechRequest includes tristate tag flags only when not "default"', (
     assert.equal('semantic_tags' in request, false);
 });
 
-test('buildSpeechRequest defaults to mp3 / speed 1 / stream false when not overridden', () => {
+test('buildSpeechRequest defaults to mp3 / stream false when not overridden', () => {
     const request = buildSpeechRequest({
         engineId: 'placeholder',
         input: 'Hi',
@@ -259,6 +266,6 @@ test('buildSpeechRequest defaults to mp3 / speed 1 / stream false when not overr
         globalCapabilities: SAMPLE_GLOBAL,
     });
     assert.equal(request.response_format, 'mp3');
-    assert.equal(request.speed, 1);
+    assert.equal('speed' in request, false, 'unsupported fields are omitted from the schema-driven request');
     assert.equal(request.stream, false);
 });

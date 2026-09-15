@@ -39,6 +39,7 @@ export class LocalTtsServerProvider {
     previewBlobUrl = null;
     globalCaps = null;
     engineCap = null;
+    runtimeCatalog = null;
 
     constructor() {
         this.settings = mergeSettings();
@@ -69,6 +70,14 @@ export class LocalTtsServerProvider {
     async refreshCapabilitiesAndRender() {
         try {
             this.globalCaps = await this.api.capabilities();
+            // Runtime discovery was added after the base capabilities API.
+            // Treat a missing/older endpoint as an empty catalog so ordinary
+            // adapter switching continues to work with older server releases.
+            try {
+                this.runtimeCatalog = await this.api.runtimes?.() ?? null;
+            } catch (_) {
+                this.runtimeCatalog = null;
+            }
             // ALWAYS sync to the server's active engine. Persisted settings
             // from older sessions may still reference a different engine
             // (e.g. the old chatterbox-turbo default) but the server rejects
@@ -85,7 +94,7 @@ export class LocalTtsServerProvider {
             return;
         }
 
-        $(`#${ROOT_ID}`).html(renderSettingsHtml(this.globalCaps, this.engineCap));
+        $(`#${ROOT_ID}`).html(renderSettingsHtml(this.globalCaps, this.engineCap, this.runtimeCatalog));
         this.populateFields();
         this.bindHandlers();
         await this.checkReady();
@@ -134,24 +143,41 @@ export class LocalTtsServerProvider {
         return schemaParams(this.globalCaps, this.engineCap);
     }
 
+    runtimeForEngine(engineId) {
+        return (this.runtimeCatalog?.runtimes ?? []).find(
+            (runtime) => runtime.engine === engineId || runtime.runtime_id === engineId,
+        ) ?? null;
+    }
+
     bindHandlers() {
         for (const [field, id] of Object.entries(ENVELOPE_IDS)) {
+            // Engine changes are asynchronous and have their own handler below.
+            // Saving model here first would make that handler mistake the new
+            // selection for the already-active engine and skip the server call.
+            if (field === 'model') continue;
             const $el = $(`#${id}`);
             const event = $el.is('select') ? 'change' : 'input';
             $el.on(event, () => this.onSettingsChange());
         }
         $('#local_tts_server_engine').on('change', async () => {
-            // Switch the server's active engine live (one engine at a time), then
-            // re-render so the panel reflects the new engine's capabilities.
+            // Resident GPU engines need their Docker runtime started before the
+            // adapter can switch. Other engines only need the inexpensive
+            // in-process adapter switch used by older server releases.
             const selected = String($('#local_tts_server_engine').val() || '');
             if (!selected || selected === this.settings.model) return;
-            this.setStatus(`Switching engine to ${selected}…`);
+            const runtime = this.runtimeForEngine(selected);
+            const label = runtime?.label || selected;
+            this.setStatus(runtime ? `Starting ${label} runtime…` : `Switching engine to ${label}…`);
             try {
-                await this.api.switchEngine(selected);
+                if (runtime) {
+                    await this.api.switchRuntime(runtime.runtime_id);
+                } else {
+                    await this.api.switchEngine(selected);
+                }
                 await this.refreshCapabilitiesAndRender();
             } catch (error) {
                 $('#local_tts_server_engine').val(this.settings.model);
-                this.setStatus(`Engine switch failed: ${error.message}`, false);
+                this.setStatus(`${runtime ? 'Runtime' : 'Engine'} switch failed: ${error.message}`, false);
             }
         });
         for (const param of this.allSchemaParams()) {

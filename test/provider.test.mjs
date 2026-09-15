@@ -37,7 +37,10 @@ function fakeApi(opts = {}) {
     return {
         calls: opts,
         capabilities: async () => { if (opts.capsError) throw new Error('boom'); return opts.caps ?? CAPS; },
+        runtimes: async () => { if (opts.runtimesError) throw new Error('not supported'); return opts.runtimes ?? { runtimes: [] }; },
         engineCapability: async () => opts.engineCap ?? ENGINE_CAP,
+        switchEngine: async (id) => { opts.switchedEngine = id; return { engine: id, state: 'ready' }; },
+        switchRuntime: async (id) => { opts.switchedRuntime = id; return { runtime: id, engine: id, state: 'ready' }; },
         status: async () => { if (opts.statusError) throw new Error('down'); return opts.status ?? { engine: 'chatterbox-turbo', model_status: 'ready' }; },
         voices: async () => opts.voices ?? [],
         presets: async () => opts.presets ?? [],
@@ -78,6 +81,39 @@ test('refreshCapabilitiesAndRender does not re-save when the engine already matc
     const before = harness.saveCount();
     await provider.refreshCapabilitiesAndRender();
     assert.equal(harness.saveCount(), before, 'no settings write when model is already correct');
+});
+
+test('runtime discovery failure is backward compatible with older servers', async () => {
+    const provider = freshProvider({ api: fakeApi({ runtimesError: true }) });
+    await provider.refreshCapabilitiesAndRender();
+    assert.equal(provider.runtimeCatalog, null);
+    assert.equal(harness.el('#local_tts_server_engine').tag, 'select');
+});
+
+test('engine selection starts a resident runtime when the catalog maps that engine', async () => {
+    const calls = {
+        runtimes: { runtimes: [{ runtime_id: 'fish-runtime', engine: 'fish-s2-pro', label: 'Fish runtime' }] },
+    };
+    const provider = freshProvider({ api: fakeApi(calls) });
+    await provider.refreshCapabilitiesAndRender();
+    harness.setValue('#local_tts_server_engine', 'fish-s2-pro');
+
+    await harness.fire('#local_tts_server_engine', 'change');
+
+    assert.equal(calls.switchedRuntime, 'fish-runtime');
+    assert.equal(calls.switchedEngine, undefined);
+});
+
+test('engine selection uses the adapter switch when no runtime is mapped', async () => {
+    const calls = {};
+    const provider = freshProvider({ api: fakeApi(calls) });
+    await provider.refreshCapabilitiesAndRender();
+    harness.setValue('#local_tts_server_engine', 'fish-s2-pro');
+
+    await harness.fire('#local_tts_server_engine', 'change');
+
+    assert.equal(calls.switchedEngine, 'fish-s2-pro');
+    assert.equal(calls.switchedRuntime, undefined);
 });
 
 test('capability fetch failure renders the fallback shell and reports an error', async () => {
@@ -179,7 +215,6 @@ test('buildRequestBody emits a schema-driven payload from the rendered controls'
         input: 'hello',
         voice: 'alice',
         response_format: 'mp3',
-        speed: 1,
         stream: false,
         temperature: 0.7,
     });

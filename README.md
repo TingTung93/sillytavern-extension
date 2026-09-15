@@ -19,7 +19,8 @@ Restart or reload SillyTavern.
 1. Start the local TTS server.
 2. Open SillyTavern TTS settings.
 3. Select `Local TTS Server` as the TTS provider.
-4. Set the server base URL, usually `http://127.0.0.1:7851`.
+4. Set the server base URL, usually `http://127.0.0.1:7851` on the host or
+   `http://<server-LAN-IP>:7851` from another device.
 5. Use SillyTavern's native `Reload` button (in the TTS panel) to refresh the
    voice list — the provider exposes `onRefreshClick()` and SillyTavern owns the
    button.
@@ -28,9 +29,11 @@ Restart or reload SillyTavern.
 
 ### Settings
 
-- **Engine** — shows the server's currently active engine. The server runs one
-  engine at a time, so this is effectively read-only; other engines appear
-  disabled for discoverability.
+- **Engine** — switches the server's active engine. For resident GPU models
+  such as VoxCPM2, MOSS-TTS Nano, and Audio8, the extension asks the server to
+  stop the current model container, start the selected runtime, wait for its
+  health check, and then activate its adapter. Runtime startup can take a few
+  minutes on the first model load.
 - **Format** — `mp3` (default) or `wav`.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset
   combinations, or both.
@@ -58,6 +61,9 @@ Restart or reload SillyTavern.
 - `GET /api/presets`
 - `GET /api/capabilities`
 - `GET /api/capabilities/{engine}`
+- `GET /api/runtimes` (optional; runtime-capable servers)
+- `POST /api/engine`
+- `POST /api/runtime/{runtime}` (resident GPU engines)
 - `POST /v1/audio/speech`
 
 ## Voice Selectors

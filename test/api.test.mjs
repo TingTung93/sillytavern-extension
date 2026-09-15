@@ -139,6 +139,18 @@ test('capabilities() GETs /api/capabilities and returns the body', async () => {
     assert.equal(caps.current_engine, 'chatterbox-turbo');
 });
 
+test('runtimes() GETs /api/runtimes and returns the catalog', async () => {
+    let lastUrl;
+    const catalog = { runtimes: [{ runtime_id: 'voxcpm2', engine: 'voxcpm2' }] };
+    const fakeFetch = (url) => {
+        lastUrl = url;
+        return Promise.resolve(jsonResponse(catalog));
+    };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    assert.deepEqual(await api.runtimes(), catalog);
+    assert.equal(lastUrl, 'http://127.0.0.1:7851/api/runtimes');
+});
+
 test('engineCapability(id) GETs /api/capabilities/{id} and returns body', async () => {
     let lastUrl;
     const fakeFetch = (url) => {
@@ -164,6 +176,21 @@ test('switchEngine(id) POSTs /api/engine with the engine id', async () => {
     assert.equal(lastInit.method, 'POST');
     assert.equal(JSON.parse(lastInit.body).engine, 'omnivoice');
     assert.equal(body.engine, 'omnivoice');
+});
+
+test('switchRuntime(id) POSTs the encoded /api/runtime/{id} path', async () => {
+    let lastUrl, lastInit;
+    const fakeFetch = (url, init) => {
+        lastUrl = url;
+        lastInit = init;
+        return Promise.resolve(jsonResponse({ runtime: 'moss nano', engine: 'moss', state: 'ready' }));
+    };
+    const api = new LocalTtsServerApi(makeSettings(), fakeFetch);
+    const body = await api.switchRuntime('moss nano');
+    assert.equal(lastUrl, 'http://127.0.0.1:7851/api/runtime/moss%20nano');
+    assert.equal(lastInit.method, 'POST');
+    assert.equal(lastInit.body, undefined);
+    assert.equal(body.engine, 'moss');
 });
 
 test('engineCapability returns null for 404 instead of throwing', async () => {
@@ -229,7 +256,7 @@ test('generateViaWebSocket sends a generate frame on open and resolves with asse
     assert.equal(response.headers.get('Content-Type'), 'audio/wav');
     const blob = await response.blob();
     assert.equal(blob.size, 5);
-    assert.ok(ws.closed, 'socket closed after completion');
+    assert.equal(ws.closed, false, 'persistent socket remains open for the next generation');
 });
 
 test('generateViaWebSocket rejects on an error frame', async () => {
@@ -246,7 +273,7 @@ test('generateViaWebSocket rejects when the socket closes before done', async ()
     const pending = api.generateViaWebSocket({ input: 'hi', voice: 'alice', response_format: 'mp3' });
     await flush();
     MockWebSocket.last.end();
-    await assert.rejects(pending, (error) => /closed before completion/.test(error.message));
+    await assert.rejects(pending, (error) => /closed unexpectedly/.test(error.message));
 });
 
 test('a frame resets the idle timeout, so heartbeats keep a slow generation alive', async () => {

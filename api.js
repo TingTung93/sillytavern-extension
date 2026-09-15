@@ -68,6 +68,10 @@ export class LocalTtsServerApi {
         return this.getJson('/api/capabilities');
     }
 
+    async runtimes() {
+        return this.getJson('/api/runtimes');
+    }
+
     async engineCapability(engineId) {
         if (!engineId) return null;
         const response = await this.fetchWithTimeout(
@@ -87,6 +91,18 @@ export class LocalTtsServerApi {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ engine: engineId }),
             },
+            this.generationTimeoutMs(),
+        );
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        return response.json();
+    }
+
+    async switchRuntime(runtimeId) {
+        const response = await this.fetchWithTimeout(
+            `${this.baseUrl()}/api/runtime/${encodeURIComponent(runtimeId)}`,
+            { method: 'POST' },
             this.generationTimeoutMs(),
         );
         if (!response.ok) {

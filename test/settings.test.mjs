@@ -6,10 +6,10 @@ test('mergeSettings keeps defaults', () => {
     assert.deepEqual(mergeSettings({}), DEFAULT_SETTINGS);
 });
 
-test('mergeSettings accepts known keys and drops unknown keys', () => {
+test('mergeSettings preserves dynamic schema keys from newer server engines', () => {
     assert.deepEqual(
         mergeSettings({ model: 'custom-model', unknown: true }),
-        { ...DEFAULT_SETTINGS, model: 'custom-model' },
+        { ...DEFAULT_SETTINGS, model: 'custom-model', unknown: true },
     );
 });
 

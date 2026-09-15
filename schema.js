@@ -70,14 +70,17 @@ export function schemaParams(globalCaps, engineCapability) {
     ];
 }
 
-export function renderSettingsHtml(globalCaps, engineCapability) {
+export function renderSettingsHtml(globalCaps, engineCapability, runtimeCatalog = null) {
+    const runtimeEngines = new Set(
+        (runtimeCatalog?.runtimes ?? []).flatMap((runtime) => [runtime.engine, runtime.runtime_id]).filter(Boolean),
+    );
     const engines = (globalCaps?.engines ?? []).map((engine) => {
-        // Engines are selectable: picking a non-active one switches the server's
-        // active engine live via POST /api/engine (handled in provider.js).
+        // Engines are selectable. Resident GPU engines trigger a container
+        // runtime swap; lightweight adapters switch in-process.
         const selected = engine.is_active ? ' selected' : '';
         const label = engine.is_active
             ? engine.label || engine.id
-            : `${engine.label || engine.id} (switch)`;
+            : `${engine.label || engine.id} (${runtimeEngines.has(engine.id) ? 'start runtime' : 'switch'})`;
         return `<option value="${escapeAttr(engine.id)}"${selected}>${escapeHtml(label)}</option>`;
     }).join('');
 
