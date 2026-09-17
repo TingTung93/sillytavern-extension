@@ -261,20 +261,19 @@ test('buildRequestBody emits a schema-driven payload from the rendered controls'
     });
 });
 
-test('generateTts returns progressive responses and sends streaming WAV', async () => {
+test('generateTts plays one continuous PCM stream and sends streaming WAV', async () => {
     const calls = {};
     const provider = freshProvider({ api: fakeApi(calls) });
+    let played = 0;
+    provider.streamPlayerFactory = () => ({
+        play: async () => { played += 1; },
+        stop: async () => {},
+    });
     await provider.refreshCapabilitiesAndRender();
 
     const result = await provider.generateTts('hello', 'alice');
-    assert.equal(typeof result[Symbol.asyncIterator], 'function');
-    let yielded = 0;
-    for await (const response of result) {
-        assert.equal(typeof response.blob, 'function');
-        yielded += 1;
-    }
-
-    assert.equal(yielded, 1);
+    assert.equal(result, '/sounds/silence.mp3');
+    assert.equal(played, 1);
     assert.equal(calls.generated.stream, true);
     assert.equal(calls.generated.response_format, 'wav');
 });

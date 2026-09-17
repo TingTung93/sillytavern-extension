@@ -8,7 +8,7 @@ import {
     voiceIdOf,
 } from './selectors.js';
 import { mergeSettings, DEFAULT_TIMEOUT_MS, DEFAULT_GENERATION_TIMEOUT_MS } from './settings.js';
-import { playableWavChunks } from './streaming.js';
+import { PcmStreamPlayer } from './audio-stream-player.js';
 import {
     renderSettingsHtml,
     readSchemaValues,
@@ -42,6 +42,8 @@ export class LocalTtsServerProvider {
     globalCaps = null;
     engineCap = null;
     runtimeCatalog = null;
+    streamPlayer = null;
+    streamPlayerFactory = () => new PcmStreamPlayer();
 
     constructor() {
         this.settings = mergeSettings();
@@ -388,7 +390,11 @@ export class LocalTtsServerProvider {
         const chunks = this._splitChunks(text);
 
         if (this.streamingEnabled()) {
-            return this.generateStreamingTts(chunks.length ? chunks : [text], voiceId);
+            await this.playStreamingTts(chunks.length ? chunks : [text], voiceId);
+            // SillyTavern's native player still expects a result. Audio has
+            // already played continuously through Web Audio, so return its
+            // built-in silence clip merely to complete the native queue item.
+            return '/sounds/silence.mp3';
         }
 
         if (chunks.length <= 1) {
@@ -416,11 +422,15 @@ export class LocalTtsServerProvider {
         };
     }
 
-    async *generateStreamingTts(chunks, voiceId) {
+    async playStreamingTts(chunks, voiceId) {
         for (const chunk of chunks) {
             const response = await this.api.generate(this.buildRequestBody(chunk, voiceId, { stream: true }));
-            for await (const playableChunk of playableWavChunks(response)) {
-                yield playableChunk;
+            this.streamPlayer = this.streamPlayerFactory();
+            try {
+                await this.streamPlayer.play(response);
+            } finally {
+                await this.streamPlayer?.stop();
+                this.streamPlayer = null;
             }
         }
     }
@@ -447,10 +457,12 @@ export class LocalTtsServerProvider {
         await this.audioElement.play();
     }
 
-    dispose() {
+    async dispose() {
         this.audioElement.pause();
         this.audioElement.src = '';
         this.revokePreviewUrl();
         this.api.closeSocket();
+        await this.streamPlayer?.stop();
+        this.streamPlayer = null;
     }
 }

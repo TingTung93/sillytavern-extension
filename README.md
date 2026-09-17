@@ -46,7 +46,8 @@ voice clone and is only used when discovery cannot reach the server.
 - **Streaming** — starts playback while the model is still generating. It is
   enabled by default for engines that advertise streaming support. The provider
   automatically locks the output format to WAV and sends `stream: true`; streamed
-  PCM is repackaged into finite WAV segments for SillyTavern's playback queue.
+  PCM is prebuffered and played continuously through Web Audio while it arrives,
+  avoiding gaps between artificial audio-file segments.
   The control is disabled when the active engine cannot stream.
 - **Format** — `mp3` or `wav` for buffered generation. Streaming always uses WAV.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset
