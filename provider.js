@@ -8,6 +8,7 @@ import {
     voiceIdOf,
 } from './selectors.js';
 import { mergeSettings, DEFAULT_TIMEOUT_MS, DEFAULT_GENERATION_TIMEOUT_MS } from './settings.js';
+import { playableWavChunks } from './streaming.js';
 import {
     renderSettingsHtml,
     readSchemaValues,
@@ -16,6 +17,7 @@ import {
 } from './schema.js';
 
 const ROOT_ID = 'local_tts_server_root';
+const STREAMING_ID = 'local_tts_server_streaming';
 
 const ENVELOPE_IDS = {
     provider_endpoint:      'local_tts_server_endpoint',
@@ -137,6 +139,23 @@ export class LocalTtsServerProvider {
             }
             $(`[data-param="${param.id}"]`).val(display);
         }
+        this.applyStreamingUiState();
+    }
+
+    streamingSupported() {
+        return Boolean(this.engineCap?.supports_streaming);
+    }
+
+    streamingEnabled() {
+        return this.streamingSupported() && this.settings.streaming !== false;
+    }
+
+    applyStreamingUiState() {
+        const supported = this.streamingSupported();
+        const enabled = supported && this.settings.streaming !== false;
+        $(`#${STREAMING_ID}`).prop('checked', enabled).prop('disabled', !supported);
+        $(`#${ENVELOPE_IDS.response_format}`).prop('disabled', enabled);
+        $(`#${ENVELOPE_IDS.response_format}`).val(enabled ? 'wav' : (this.settings.response_format || 'mp3'));
     }
 
     allSchemaParams() {
@@ -185,11 +204,18 @@ export class LocalTtsServerProvider {
             const event = $el.is('select') ? 'change' : 'input';
             $el.on(event, () => this.onSettingsChange());
         }
+        $(`#${STREAMING_ID}`).on('change', () => {
+            this.settings.streaming = Boolean($(`#${STREAMING_ID}`).prop('checked'));
+            this.applyStreamingUiState();
+            saveTtsProviderSettings();
+        });
         $('#local_tts_server_snapshot_fallback').on('click', () => this.snapshotDiscoveredFallback());
     }
 
     onSettingsChange() {
+        const streaming = Boolean($(`#${STREAMING_ID}`).prop('checked'));
         for (const [field, id] of Object.entries(ENVELOPE_IDS)) {
+            if (field === 'response_format' && streaming) continue;
             const raw = $(`#${id}`).val();
             if (field === 'timeout_ms') {
                 this.settings[field] = this.parseTimeout(raw, DEFAULT_TIMEOUT_MS);
@@ -203,6 +229,8 @@ export class LocalTtsServerProvider {
             const raw = $(`[data-param="${param.id}"]`).val();
             this.settings[param.id] = raw ?? '';
         }
+        this.settings.streaming = streaming;
+        this.applyStreamingUiState();
         saveTtsProviderSettings();
     }
 
@@ -284,7 +312,7 @@ export class LocalTtsServerProvider {
         return match;
     }
 
-    buildRequestBody(text, voiceId) {
+    buildRequestBody(text, voiceId, { stream = this.streamingEnabled() } = {}) {
         const schemaValues = readSchemaValues(
             (id) => $(`[data-param="${id}"]`).val(),
             this.globalCaps,
@@ -293,6 +321,7 @@ export class LocalTtsServerProvider {
         return buildSpeechRequest({
             engineId: this.settings.model || DEFAULT_MODEL,
             response_format: this.settings.response_format || 'mp3',
+            stream,
             input: text,
             voice: voiceId,
             values: schemaValues,
@@ -305,6 +334,10 @@ export class LocalTtsServerProvider {
     // progress, immune to the fetch total-timeout). Any WS failure falls back to
     // the HTTP POST so generation still works against older servers or flaky WS.
     async generateRequest(requestBody) {
+        // The HTTP Response exposes a ReadableStream. The WebSocket helper
+        // assembles all frames into one Blob, so it is only appropriate for
+        // buffered requests.
+        if (requestBody.stream) return this.api.generate(requestBody);
         if (this.globalCaps?.transport?.websocket) {
             try {
                 return await this.api.generateViaWebSocket(requestBody);
@@ -354,6 +387,10 @@ export class LocalTtsServerProvider {
         void voiceMapKey;
         const chunks = this._splitChunks(text);
 
+        if (this.streamingEnabled()) {
+            return this.generateStreamingTts(chunks.length ? chunks : [text], voiceId);
+        }
+
         if (chunks.length <= 1) {
             return this.generateRequest(this.buildRequestBody(chunks[0] ?? text, voiceId));
         }
@@ -379,6 +416,15 @@ export class LocalTtsServerProvider {
         };
     }
 
+    async *generateStreamingTts(chunks, voiceId) {
+        for (const chunk of chunks) {
+            const response = await this.api.generate(this.buildRequestBody(chunk, voiceId, { stream: true }));
+            for await (const playableChunk of playableWavChunks(response)) {
+                yield playableChunk;
+            }
+        }
+    }
+
     revokePreviewUrl() {
         if (this.previewBlobUrl) {
             URL.revokeObjectURL(this.previewBlobUrl);
@@ -391,7 +437,9 @@ export class LocalTtsServerProvider {
         this.audioElement.currentTime = 0;
         this.revokePreviewUrl();
 
-        const response = await this.generateRequest(this.buildRequestBody(getPreviewString('en-US'), voiceId));
+        const response = await this.generateRequest(
+            this.buildRequestBody(getPreviewString('en-US'), voiceId, { stream: false }),
+        );
         const blob = await response.blob();
         this.previewBlobUrl = URL.createObjectURL(blob);
         this.audioElement.src = this.previewBlobUrl;

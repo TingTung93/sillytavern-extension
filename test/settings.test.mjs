@@ -6,6 +6,11 @@ test('mergeSettings keeps defaults', () => {
     assert.deepEqual(mergeSettings({}), DEFAULT_SETTINGS);
 });
 
+test('streaming defaults on and preserves an explicit opt-out', () => {
+    assert.equal(mergeSettings({}).streaming, true);
+    assert.equal(mergeSettings({ streaming: false }).streaming, false);
+});
+
 test('mergeSettings preserves dynamic schema keys from newer server engines', () => {
     assert.deepEqual(
         mergeSettings({ model: 'custom-model', unknown: true }),

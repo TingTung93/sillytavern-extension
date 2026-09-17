@@ -104,6 +104,11 @@ export function installHarness() {
                 if (on) el.classes.add(cls); else el.classes.delete(cls);
                 return api;
             },
+            prop(name, next) {
+                if (next === undefined) return el[name];
+                el[name] = next;
+                return api;
+            },
             get _el() { return el; },
         };
         return api;

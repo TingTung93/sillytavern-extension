@@ -104,6 +104,12 @@ export function renderSettingsHtml(globalCaps, engineCapability, runtimeCatalog 
                 <label for="local_tts_server_format">Format</label>
                 <select id="local_tts_server_format" class="text_pole" data-field="response_format">${formats}</select>
 
+                <label for="local_tts_server_streaming">Streaming</label>
+                <label class="tts-server-provider-toggle" title="Start playback while audio is generated. Streaming requires WAV, so enabling this locks Format to WAV.">
+                    <input id="local_tts_server_streaming" type="checkbox" data-field="streaming">
+                    <span>Enable low-latency WAV streaming</span>
+                </label>
+
                 <label for="local_tts_server_selector_mode">Voice list</label>
                 <select id="local_tts_server_selector_mode" class="text_pole" data-field="selector_mode">
                     <option value="plain-plus-presets">Voices and voice+preset selectors</option>
@@ -178,6 +184,7 @@ export function readSchemaValues(read, globalCaps, engineCapability) {
 export function buildSpeechRequest({
     engineId,
     response_format = 'mp3',
+    stream = false,
     input,
     voice,
     values = {},
@@ -188,8 +195,8 @@ export function buildSpeechRequest({
         model: engineId,
         input,
         voice,
-        response_format,
-        stream: false,
+        response_format: stream ? 'wav' : response_format,
+        stream: Boolean(stream),
     };
 
     const allowedIds = new Set(schemaParams(globalCapabilities, engineCapability).map((p) => p.id));

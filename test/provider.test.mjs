@@ -27,6 +27,7 @@ const CAPS = {
 const ENGINE_CAP = {
     id: 'chatterbox-turbo',
     label: 'Chatterbox Turbo',
+    supports_streaming: true,
     parameters: [
         { id: 'exaggeration', type: 'float', label: 'Exaggeration', min: 0, max: 2, step: 0.05, default: 0.5 },
         { id: 'temperature', type: 'float', label: 'Temperature', min: 0, max: 2, step: 0.05, default: 0.8 },
@@ -61,6 +62,7 @@ test('constructor applies merged default settings', () => {
     const provider = freshProvider();
     assert.equal(provider.settings.model, 'chatterbox-turbo');
     assert.equal(provider.settings.response_format, 'mp3');
+    assert.equal(provider.settings.streaming, true);
     assert.equal(provider.settings.generation_timeout_ms, DEFAULT_GENERATION_TIMEOUT_MS);
 });
 
@@ -137,6 +139,31 @@ test('populateFields fills envelope fields and maps a blank tristate to "default
     provider.settings.semantic_tags = '';
     provider.populateFields();
     assert.equal(harness.el('[data-param="semantic_tags"]').value, 'default');
+    assert.equal(harness.el('#local_tts_server_streaming').checked, true);
+    assert.equal(harness.el('#local_tts_server_format').value, 'wav');
+    assert.equal(harness.el('#local_tts_server_format').disabled, true);
+});
+
+test('streaming toggle persists and restores the configured buffered format', async () => {
+    const provider = freshProvider({ settings: mergeSettings({ response_format: 'mp3', streaming: true }) });
+    await provider.refreshCapabilitiesAndRender();
+
+    harness.el('#local_tts_server_streaming').checked = false;
+    await harness.fire('#local_tts_server_streaming', 'change');
+
+    assert.equal(provider.settings.streaming, false);
+    assert.equal(provider.settings.response_format, 'mp3');
+    assert.equal(harness.el('#local_tts_server_format').disabled, false);
+    assert.equal(harness.el('#local_tts_server_format').value, 'mp3');
+});
+
+test('streaming control is disabled when the active engine cannot stream', async () => {
+    const provider = freshProvider({ api: fakeApi({ engineCap: { ...ENGINE_CAP, supports_streaming: false } }) });
+    await provider.refreshCapabilitiesAndRender();
+
+    assert.equal(harness.el('#local_tts_server_streaming').checked, false);
+    assert.equal(harness.el('#local_tts_server_streaming').disabled, true);
+    assert.equal(provider.buildRequestBody('hello', 'alice').stream, false);
 });
 
 test('onSettingsChange reads the DOM back into settings and clamps timeouts', async () => {
@@ -228,10 +255,28 @@ test('buildRequestBody emits a schema-driven payload from the rendered controls'
         model: 'chatterbox-turbo',
         input: 'hello',
         voice: 'alice',
-        response_format: 'mp3',
-        stream: false,
+        response_format: 'wav',
+        stream: true,
         temperature: 0.7,
     });
+});
+
+test('generateTts returns progressive responses and sends streaming WAV', async () => {
+    const calls = {};
+    const provider = freshProvider({ api: fakeApi(calls) });
+    await provider.refreshCapabilitiesAndRender();
+
+    const result = await provider.generateTts('hello', 'alice');
+    assert.equal(typeof result[Symbol.asyncIterator], 'function');
+    let yielded = 0;
+    for await (const response of result) {
+        assert.equal(typeof response.blob, 'function');
+        yielded += 1;
+    }
+
+    assert.equal(yielded, 1);
+    assert.equal(calls.generated.stream, true);
+    assert.equal(calls.generated.response_format, 'wav');
 });
 
 test('getVoice resolves by name or voice_id and throws when missing', async () => {

@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     provider_endpoint: DEFAULT_ENDPOINT,
     model: DEFAULT_MODEL,
     response_format: 'mp3',
+    streaming: true,
     selector_mode: 'plain-plus-presets',
     fallback_voices: '',
     timeout_ms: DEFAULT_TIMEOUT_MS,
@@ -38,6 +39,7 @@ function migrateTagValue(value) {
 
 export function mergeSettings(settings = {}) {
     const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    merged.streaming = merged.streaming !== false;
     merged.paralinguistic_tags = migrateTagValue(merged.paralinguistic_tags);
     merged.semantic_tags = migrateTagValue(merged.semantic_tags);
     if (!Number.isFinite(merged.timeout_ms) || merged.timeout_ms < 1000) {

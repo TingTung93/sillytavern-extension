@@ -43,7 +43,12 @@ voice clone and is only used when discovery cannot reach the server.
   stop the current model container, start the selected runtime, wait for its
   health check, and then activate its adapter. Runtime startup can take a few
   minutes on the first model load.
-- **Format** — `mp3` (default) or `wav`.
+- **Streaming** — starts playback while the model is still generating. It is
+  enabled by default for engines that advertise streaming support. The provider
+  automatically locks the output format to WAV and sends `stream: true`; streamed
+  PCM is repackaged into finite WAV segments for SillyTavern's playback queue.
+  The control is disabled when the active engine cannot stream.
+- **Format** — `mp3` or `wav` for buffered generation. Streaming always uses WAV.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset
   combinations, or both.
 - **Fallback voices** — comma-separated selector list used when server discovery

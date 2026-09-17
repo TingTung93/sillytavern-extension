@@ -26,6 +26,7 @@ const SAMPLE_GLOBAL = {
 const SAMPLE_CHATTERBOX = {
     id: 'chatterbox-turbo',
     label: 'Chatterbox Turbo',
+    supports_streaming: true,
     parameters: [
         { id: 'exaggeration',       type: 'float', label: 'Exaggeration',       min: 0, max: 2, step: 0.05, default: 0.5 },
         { id: 'temperature',        type: 'float', label: 'Temperature',        min: 0, max: 2, step: 0.05, default: 0.8 },
@@ -73,6 +74,12 @@ test('renderSettingsHtml emits an <option> for each engine and marks the active 
     assert.match(html, /<option value="chatterbox-turbo"[^>]*selected/);
     assert.match(html, /<option value="fish-s2-pro"(?![^>]*selected)/);
     assert.match(html, /<option value="placeholder"(?![^>]*selected)/);
+});
+
+test('renderSettingsHtml exposes the streaming toggle and explains WAV enforcement', () => {
+    const html = renderSettingsHtml(SAMPLE_GLOBAL, SAMPLE_CHATTERBOX);
+    assert.match(html, /id="local_tts_server_streaming"[^>]*type="checkbox"/);
+    assert.match(html, /Streaming requires WAV/);
 });
 
 test('renderSettingsHtml leaves every engine option selectable for live switching', () => {
@@ -268,4 +275,18 @@ test('buildSpeechRequest defaults to mp3 / stream false when not overridden', ()
     assert.equal(request.response_format, 'mp3');
     assert.equal('speed' in request, false, 'unsupported fields are omitted from the schema-driven request');
     assert.equal(request.stream, false);
+});
+
+test('buildSpeechRequest forces WAV whenever streaming is enabled', () => {
+    const request = buildSpeechRequest({
+        engineId: 'chatterbox-turbo',
+        response_format: 'mp3',
+        stream: true,
+        input: 'Hi',
+        voice: 'alice',
+        engineCapability: SAMPLE_CHATTERBOX,
+        globalCapabilities: SAMPLE_GLOBAL,
+    });
+    assert.equal(request.response_format, 'wav');
+    assert.equal(request.stream, true);
 });
