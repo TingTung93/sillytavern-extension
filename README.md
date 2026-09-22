@@ -46,8 +46,10 @@ voice clone and is only used when discovery cannot reach the server.
 - **Streaming** — starts playback while the model is still generating. It is
   enabled by default for engines that advertise streaming support. The provider
   automatically locks the output format to WAV and sends `stream: true`; streamed
-  PCM is prebuffered and played continuously through Web Audio while it arrives,
-  avoiding gaps between artificial audio-file segments.
+  PCM is prebuffered and played continuously through one persistent Web Audio
+  queue. Paragraph narration reuses that queue and starts generating the next
+  paragraph as soon as the previous network stream ends, covering VoxCPM2's
+  per-request startup latency instead of draining playback between requests.
   The control is disabled when the active engine cannot stream.
 - **Format** — `mp3` or `wav` for buffered generation. Streaming always uses WAV.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset

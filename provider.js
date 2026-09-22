@@ -382,9 +382,10 @@ export class LocalTtsServerProvider {
 
     // voiceMapKey is part of SillyTavern's provider contract but the composite
     // "voice+preset" selector already encodes everything the server needs.
-    // With separator='\x00' ST passes the full message here. We split it,
-    // generate each chunk sequentially over the persistent WebSocket, then
-    // return the concatenated audio so ST plays it as one uninterrupted clip.
+    // With separator='\x00' ST normally passes the full message here. When its
+    // paragraph narration option is enabled it still calls us once per paragraph,
+    // so streamed calls share one PCM player and prebuffer instead of waiting for
+    // playback to drain before the next request starts.
     async generateTts(text, voiceId, voiceMapKey) {
         void voiceMapKey;
         const chunks = this._splitChunks(text);
@@ -423,15 +424,16 @@ export class LocalTtsServerProvider {
     }
 
     async playStreamingTts(chunks, voiceId) {
-        for (const chunk of chunks) {
-            const response = await this.api.generate(this.buildRequestBody(chunk, voiceId, { stream: true }));
-            this.streamPlayer = this.streamPlayerFactory();
-            try {
-                await this.streamPlayer.play(response);
-            } finally {
-                await this.streamPlayer?.stop();
-                this.streamPlayer = null;
+        this.streamPlayer ??= this.streamPlayerFactory();
+        try {
+            for (const chunk of chunks) {
+                const response = await this.api.generate(this.buildRequestBody(chunk, voiceId, { stream: true }));
+                await this.streamPlayer.append(response);
             }
+        } catch (error) {
+            await this.streamPlayer?.stop();
+            this.streamPlayer = null;
+            throw error;
         }
     }
 

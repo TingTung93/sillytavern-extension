@@ -261,21 +261,54 @@ test('buildRequestBody emits a schema-driven payload from the rendered controls'
     });
 });
 
-test('generateTts plays one continuous PCM stream and sends streaming WAV', async () => {
-    const calls = {};
-    const provider = freshProvider({ api: fakeApi(calls) });
-    let played = 0;
+test('generateTts reuses one PCM queue across paragraph calls and sends streaming WAV', async () => {
+    const calls = { requests: [] };
+    const api = fakeApi(calls);
+    api.generate = async (body) => {
+        calls.requests.push(body);
+        return { blob: async () => ({}) };
+    };
+    const provider = freshProvider({ api });
+    let players = 0;
+    let appended = 0;
+    let stopped = 0;
     provider.streamPlayerFactory = () => ({
-        play: async () => { played += 1; },
-        stop: async () => {},
+        append: async () => { appended += 1; },
+        stop: async () => { stopped += 1; },
     });
+    provider.streamPlayerFactory = ((factory) => () => {
+        players += 1;
+        return factory();
+    })(provider.streamPlayerFactory);
     await provider.refreshCapabilitiesAndRender();
 
-    const result = await provider.generateTts('hello', 'alice');
-    assert.equal(result, '/sounds/silence.mp3');
-    assert.equal(played, 1);
-    assert.equal(calls.generated.stream, true);
-    assert.equal(calls.generated.response_format, 'wav');
+    assert.equal(await provider.generateTts('first paragraph', 'alice'), '/sounds/silence.mp3');
+    assert.equal(await provider.generateTts('second paragraph', 'alice'), '/sounds/silence.mp3');
+    assert.equal(players, 1, 'keeps one AudioWorklet queue alive between calls');
+    assert.equal(appended, 2);
+    assert.equal(stopped, 0, 'does not drain or close playback between paragraphs');
+    assert.equal(calls.requests.length, 2);
+    assert.ok(calls.requests.every(body => body.stream === true));
+    assert.ok(calls.requests.every(body => body.response_format === 'wav'));
+});
+
+test('streaming failure closes the shared player so the next call can recover', async () => {
+    const provider = freshProvider();
+    let players = 0;
+    let stopped = 0;
+    provider.streamPlayerFactory = () => {
+        players += 1;
+        return {
+            append: async () => { throw new Error('stream failed'); },
+            stop: async () => { stopped += 1; },
+        };
+    };
+    await provider.refreshCapabilitiesAndRender();
+
+    await assert.rejects(provider.generateTts('hello', 'alice'), /stream failed/);
+    assert.equal(players, 1);
+    assert.equal(stopped, 1);
+    assert.equal(provider.streamPlayer, null);
 });
 
 test('getVoice resolves by name or voice_id and throws when missing', async () => {

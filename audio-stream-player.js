@@ -56,50 +56,66 @@ export async function consumeWavStream(response, onFormat, onPcm) {
 
 /** Gapless PCM playback backed by a prebuffered AudioWorklet queue. */
 export class PcmStreamPlayer {
-    constructor({ audioContextClass, workletUrl } = {}) {
+    constructor({ audioContextClass, audioWorkletNodeClass, workletUrl, prebufferSeconds = 0.75 } = {}) {
         this.AudioContextClass = audioContextClass
             ?? globalThis.AudioContext
             ?? globalThis.webkitAudioContext;
+        this.AudioWorkletNodeClass = audioWorkletNodeClass ?? globalThis.AudioWorkletNode;
         this.workletUrl = workletUrl ?? new URL('./pcm-player-worklet.js', import.meta.url).href;
+        this.prebufferSeconds = prebufferSeconds;
         this.context = null;
         this.node = null;
+        this.format = null;
+        this.drained = null;
     }
 
-    async play(response) {
-        if (!this.AudioContextClass) throw new Error('Web Audio is not available in this browser');
-        let drainedResolve;
-        let drainedReject;
-        const drained = new Promise((resolve, reject) => {
-            drainedResolve = resolve;
-            drainedReject = reject;
-        });
+    async initialize(format) {
+        if (this.node) {
+            const sameFormat = this.format.sampleRate === format.sampleRate
+                && this.format.channels === format.channels
+                && this.format.bitsPerSample === format.bitsPerSample;
+            if (!sameFormat) throw new Error('Audio format changed while streamed playback was active');
+            return;
+        }
 
+        this.context = new this.AudioContextClass({ sampleRate: format.sampleRate });
+        await this.context.audioWorklet.addModule(this.workletUrl);
+        this.node = new this.AudioWorkletNodeClass(this.context, 'tts-server-pcm-player', {
+            numberOfInputs: 0,
+            numberOfOutputs: 1,
+            outputChannelCount: [format.channels],
+            processorOptions: { ...format, prebufferSeconds: this.prebufferSeconds },
+        });
+        this.format = format;
+        this.drained = new Promise((resolve, reject) => {
+            this.node.port.onmessage = (event) => {
+                if (event.data?.type === 'drained') resolve();
+                if (event.data?.type === 'error') reject(new Error(event.data.detail));
+            };
+        });
+        this.node.connect(this.context.destination);
+        await this.context.resume();
+    }
+
+    /** Append another streamed WAV response to the same playback queue. */
+    async append(response) {
+        if (!this.AudioContextClass) throw new Error('Web Audio is not available in this browser');
+        await consumeWavStream(
+            response,
+            async (format) => this.initialize(format),
+            async (pcm) => {
+                const buffer = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
+                this.node.port.postMessage({ type: 'pcm', buffer }, [buffer]);
+            },
+        );
+    }
+
+    /** Play one response to completion. Prefer append() for a multi-request session. */
+    async play(response) {
         try {
-            await consumeWavStream(
-                response,
-                async (format) => {
-                    this.context = new this.AudioContextClass({ sampleRate: format.sampleRate });
-                    await this.context.audioWorklet.addModule(this.workletUrl);
-                    this.node = new AudioWorkletNode(this.context, 'tts-server-pcm-player', {
-                        numberOfInputs: 0,
-                        numberOfOutputs: 1,
-                        outputChannelCount: [format.channels],
-                        processorOptions: format,
-                    });
-                    this.node.port.onmessage = (event) => {
-                        if (event.data?.type === 'drained') drainedResolve();
-                        if (event.data?.type === 'error') drainedReject(new Error(event.data.detail));
-                    };
-                    this.node.connect(this.context.destination);
-                    await this.context.resume();
-                },
-                async (pcm) => {
-                    const buffer = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
-                    this.node.port.postMessage({ type: 'pcm', buffer }, [buffer]);
-                },
-            );
+            await this.append(response);
             this.node.port.postMessage({ type: 'end' });
-            await drained;
+            await this.drained;
         } finally {
             await this.stop();
         }
@@ -108,6 +124,8 @@ export class PcmStreamPlayer {
     async stop() {
         try { this.node?.disconnect(); } catch (_) { /* already disconnected */ }
         this.node = null;
+        this.format = null;
+        this.drained = null;
         const context = this.context;
         this.context = null;
         if (context && context.state !== 'closed') {

@@ -3,10 +3,12 @@ class TtsServerPcmPlayer extends AudioWorkletProcessor {
         super();
         const config = options.processorOptions || {};
         this.channels = Math.max(1, Number(config.channels) || 1);
-        this.prebufferFrames = Math.max(128, Math.floor((Number(config.sampleRate) || sampleRate) * 0.2));
+        const prebufferSeconds = Math.max(0, Number(config.prebufferSeconds) || 0.75);
+        this.prebufferFrames = Math.max(128, Math.floor((Number(config.sampleRate) || sampleRate) * prebufferSeconds));
         this.queue = [];
         this.bufferedFrames = 0;
         this.playing = false;
+        this.started = false;
         this.ended = false;
         this.drained = false;
         this.pendingBytes = new Uint8Array();
@@ -44,8 +46,13 @@ class TtsServerPcmPlayer extends AudioWorkletProcessor {
     process(_inputs, outputs) {
         const output = outputs[0];
         if (!output?.length || this.drained) return true;
-        if (!this.playing && (this.bufferedFrames >= this.prebufferFrames || (this.ended && this.bufferedFrames > 0))) {
+        if (!this.playing && (
+            (this.started && this.bufferedFrames > 0)
+            || this.bufferedFrames >= this.prebufferFrames
+            || (this.ended && this.bufferedFrames > 0)
+        )) {
             this.playing = true;
+            this.started = true;
         }
 
         let target = 0;

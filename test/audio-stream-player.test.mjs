@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consumeWavStream, parseCanonicalWavHeader } from '../audio-stream-player.js';
+import { PcmStreamPlayer, consumeWavStream, parseCanonicalWavHeader } from '../audio-stream-player.js';
 
 function wavHeader(sampleRate = 8000, channels = 1) {
     const header = new Uint8Array(44);
@@ -40,4 +40,50 @@ test('consumeWavStream handles a split header and forwards PCM without WAV segme
     );
     assert.equal(format.sampleRate, 8000);
     assert.deepEqual(received, [...pcm]);
+});
+
+test('PcmStreamPlayer appends consecutive responses to one worklet without ending it', async () => {
+    const messages = [];
+    const contexts = [];
+    class MockContext {
+        constructor(options) {
+            this.options = options;
+            this.state = 'running';
+            this.destination = {};
+            this.audioWorklet = { addModule: async () => {} };
+            contexts.push(this);
+        }
+        async resume() {}
+        async close() { this.state = 'closed'; }
+    }
+    class MockNode {
+        constructor(_context, _name, options) {
+            this.options = options;
+            this.port = { postMessage: (message) => messages.push(message), onmessage: null };
+        }
+        connect() {}
+        disconnect() {}
+    }
+    const response = (pcm) => new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(new Uint8Array([...wavHeader(48000), ...pcm]));
+            controller.close();
+        },
+    }), { headers: { 'Content-Type': 'audio/wav' } });
+    const player = new PcmStreamPlayer({
+        audioContextClass: MockContext,
+        audioWorkletNodeClass: MockNode,
+        workletUrl: 'mock-worklet.js',
+        prebufferSeconds: 0.75,
+    });
+
+    await player.append(response([1, 2]));
+    await player.append(response([3, 4]));
+
+    assert.equal(contexts.length, 1, 'reuses one AudioContext across paragraph responses');
+    assert.equal(player.node.options.processorOptions.prebufferSeconds, 0.75);
+    assert.deepEqual(messages.map(message => message.type), ['pcm', 'pcm']);
+    assert.ok(!messages.some(message => message.type === 'end'), 'keeps the shared queue open');
+    await player.stop();
+    assert.equal(contexts[0].state, 'closed');
 });
