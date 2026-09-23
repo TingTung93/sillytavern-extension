@@ -59,8 +59,9 @@ voice clone and is only used when discovery cannot reach the server.
   boundaries using the server-advertised request budget. Conservative fallbacks
   are 3,000 characters for Fish S2 and 2,000 characters for Qwen3-TTS, VoxCPM2,
   Higgs, and MOSS. Audio8 uses 140 speech units (Latin words or individual
-  non-Latin characters), below its 150-unit hard limit. Chatterbox, CosyVoice,
-  DramaBox, and OmniVoice additionally chunk inside the server.
+  non-Latin characters), below the official demo's 150-unit guard; the direct
+  vLLM-Omni adapter does not publish a strict text ceiling. Chatterbox,
+  CosyVoice, DramaBox, and OmniVoice additionally chunk inside the server.
 - **Format** — `mp3` or `wav` for buffered generation. Streaming always uses WAV.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset
   combinations, or both.
