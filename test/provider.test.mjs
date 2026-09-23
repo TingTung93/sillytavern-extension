@@ -292,6 +292,28 @@ test('generateTts reuses one PCM queue across paragraph calls and sends streamin
     assert.ok(calls.requests.every(body => body.response_format === 'wav'));
 });
 
+test('generateTts strips markup before sending text to the server', async () => {
+    const calls = {};
+    const provider = freshProvider({ api: fakeApi(calls) });
+    await provider.refreshCapabilitiesAndRender();
+    provider.settings.streaming = false;
+
+    await provider.generateTts('<p>**Hello** [friend](https://example.test).</p>', 'alice');
+
+    assert.equal(calls.generated.input, 'Hello friend.');
+});
+
+test('splitChunks respects advertised request limits without paragraph boundaries', () => {
+    const provider = freshProvider();
+    provider.settings.model = 'voxcpm2';
+    provider.engineCap = { chunking: { request_limit: 12, request_unit: 'chars' } };
+
+    const chunks = provider._splitChunks('one two three four five six');
+
+    assert.deepEqual(chunks, ['one two', 'three four', 'five six']);
+    assert.ok(chunks.every(chunk => chunk.length <= 12));
+});
+
 test('streaming failure closes the shared player so the next call can recover', async () => {
     const provider = freshProvider();
     let players = 0;

@@ -9,6 +9,7 @@ import {
 } from './selectors.js';
 import { mergeSettings, DEFAULT_TIMEOUT_MS, DEFAULT_GENERATION_TIMEOUT_MS } from './settings.js';
 import { PcmStreamPlayer } from './audio-stream-player.js';
+import { cleanTtsText, requestBudget, splitTextForSpeech } from './text.js';
 import {
     renderSettingsHtml,
     readSchemaValues,
@@ -350,34 +351,22 @@ export class LocalTtsServerProvider {
         return this.api.generate(requestBody);
     }
 
-    // Max characters to send in a single synthesis request for the active engine.
-    // Chatterbox auto-chunks at sentence boundaries internally, so we pass it the
-    // full text and let the model handle splitting. Fish S2 Pro has no internal
-    // chunking and degrades past ~939 tokens (~3 000 English chars). Unknown
-    // engines get a conservative 2 000-char limit.
-    // Prefers a server-advertised max_chars on the engine capability if present.
+    // Retained for third-party callers; splitting itself uses the capability's
+    // unit-aware request budget (characters or Audio8 speech units).
     _maxCharsPerChunk() {
-        const serverLimit = this.engineCap?.max_chars ?? this.globalCaps?.max_chars;
-        if (Number.isFinite(serverLimit) && serverLimit > 0) return serverLimit;
-        const model = String(this.settings.model || '').toLowerCase();
-        if (model.includes('chatterbox')) return Infinity; // auto-chunks internally
-        if (model.includes('fish')) return 3000;
-        return 2000;
+        return requestBudget(this.settings.model, this.engineCap).limit;
     }
 
-    // Split text only when it exceeds the engine's practical limit.
-    // Tries paragraph breaks first, then line breaks. If the text cannot be
-    // split into sub-limit pieces it is returned as-is (server truncates).
+    // Sentence/word/character fallbacks guarantee that every request fits even
+    // when the input has no paragraph or line breaks.
     _splitChunks(text) {
-        const s = String(text || '').trim();
-        if (!s) return [];
-        const limit = this._maxCharsPerChunk();
-        if (!Number.isFinite(limit) || s.length <= limit) return [s];
-        for (const re of [/\n\n+/, /\n/]) {
-            const parts = s.split(re).map(p => p.trim()).filter(Boolean);
-            if (parts.length > 1) return parts;
-        }
-        return [s]; // no natural split point — send as-is
+        return splitTextForSpeech(text, requestBudget(this.settings.model, this.engineCap));
+    }
+
+    // SillyTavern invokes this before its quote/paragraph processing. The
+    // generate path also cleans defensively for direct provider callers.
+    processText(text) {
+        return cleanTtsText(text);
     }
 
     // voiceMapKey is part of SillyTavern's provider contract but the composite
@@ -388,10 +377,11 @@ export class LocalTtsServerProvider {
     // playback to drain before the next request starts.
     async generateTts(text, voiceId, voiceMapKey) {
         void voiceMapKey;
-        const chunks = this._splitChunks(text);
+        const cleanedText = cleanTtsText(text);
+        const chunks = this._splitChunks(cleanedText);
 
         if (this.streamingEnabled()) {
-            await this.playStreamingTts(chunks.length ? chunks : [text], voiceId);
+            await this.playStreamingTts(chunks.length ? chunks : [cleanedText], voiceId);
             // SillyTavern's native player still expects a result. Audio has
             // already played continuously through Web Audio, so return its
             // built-in silence clip merely to complete the native queue item.
@@ -399,7 +389,7 @@ export class LocalTtsServerProvider {
         }
 
         if (chunks.length <= 1) {
-            return this.generateRequest(this.buildRequestBody(chunks[0] ?? text, voiceId));
+            return this.generateRequest(this.buildRequestBody(chunks[0] ?? cleanedText, voiceId));
         }
 
         let contentType = 'audio/mpeg';

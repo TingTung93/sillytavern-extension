@@ -31,6 +31,10 @@ last selected provider.
 6. Assign voices in SillyTavern's native voice map.
 7. Use SillyTavern TTS normally.
 
+Markdown and HTML syntax is removed automatically before synthesis. Link and
+image labels remain readable, while tags, emphasis markers, table delimiters,
+hidden HTML, and raw URLs are not sent to the speech model.
+
 For VoxCPM2 voice cloning, first open the TTS Server web UI at the configured
 base URL and upload reference audio in its **Voices** tab. Then click Reload in
 SillyTavern and assign the discovered server voice. A fallback label is not a
@@ -51,6 +55,12 @@ voice clone and is only used when discovery cannot reach the server.
   paragraph as soon as the previous network stream ends, covering VoxCPM2's
   per-request startup latency instead of draining playback between requests.
   The control is disabled when the active engine cannot stream.
+- **Input safety** — the provider chunks cleaned text at sentence and word
+  boundaries using the server-advertised request budget. Conservative fallbacks
+  are 3,000 characters for Fish S2 and 2,000 characters for Qwen3-TTS, VoxCPM2,
+  Higgs, and MOSS. Audio8 uses 140 speech units (Latin words or individual
+  non-Latin characters), below its 150-unit hard limit. Chatterbox, CosyVoice,
+  DramaBox, and OmniVoice additionally chunk inside the server.
 - **Format** — `mp3` or `wav` for buffered generation. Streaming always uses WAV.
 - **Voice list** — choose whether the dropdown exposes plain voices, voice+preset
   combinations, or both.
